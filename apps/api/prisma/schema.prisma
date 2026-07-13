@@ -1,0 +1,390 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  CUSTOMER
+  VENDOR
+  ADMIN
+}
+
+enum AccountStatus {
+  ACTIVE
+  BANNED
+}
+
+enum ShopStatus {
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+enum ProductStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum InventoryReason {
+  INITIAL_STOCK
+  MANUAL_ADJUSTMENT
+  ORDER_RESERVED
+  ORDER_RELEASED
+  ORDER_SOLD
+  RETURNED
+}
+
+enum ParentOrderStatus {
+  DRAFT
+  PLACED
+  COMPLETED
+  CANCELLED
+}
+
+enum ShopOrderStatus {
+  PENDING_CONFIRMATION
+  CONFIRMED
+  PACKING
+  READY_TO_HANDOFF
+  DELIVERED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  COD
+  BANK_TRANSFER
+}
+
+enum PaymentStatus {
+  UNPAID
+  AUTHORIZED
+  PAID
+  FAILED
+  REFUND_PENDING
+  REFUNDED
+}
+
+enum CouponScope {
+  GLOBAL
+  SHOP
+}
+
+enum CouponType {
+  PERCENTAGE
+  FIXED_AMOUNT
+}
+
+model User {
+  id            String        @id @default(uuid()) @db.Uuid
+  email         String        @unique
+  passwordHash  String        @map("password_hash")
+  fullName      String        @map("full_name")
+  phone         String?       @unique
+  role          UserRole      @default(CUSTOMER)
+  status        AccountStatus @default(ACTIVE)
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  addresses     UserAddress[]
+  shops         Shop[]
+  carts         Cart[]
+  orders        ParentOrder[]
+  reviews       Review[]
+  couponUsages  CouponUsage[]
+
+  @@map("users")
+}
+
+model UserAddress {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  recipient   String
+  phone       String
+  line1       String
+  ward        String
+  district    String
+  city        String
+  isDefault   Boolean  @default(false) @map("is_default")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("user_addresses")
+}
+
+model Shop {
+  id          String     @id @default(uuid()) @db.Uuid
+  ownerId     String     @map("owner_id") @db.Uuid
+  name        String
+  slug        String     @unique
+  description String?    @db.Text
+  logoUrl     String?    @map("logo_url")
+  status      ShopStatus @default(PENDING_REVIEW)
+  rating      Decimal    @default(0) @db.Decimal(3, 2)
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+
+  owner       User        @relation(fields: [ownerId], references: [id])
+  products    Product[]
+  shopOrders  ShopOrder[]
+  coupons     Coupon[]
+
+  @@index([ownerId])
+  @@map("shops")
+}
+
+model Category {
+  id          Int        @id @default(autoincrement())
+  parentId    Int?       @map("parent_id")
+  name        String
+  slug        String     @unique
+  description String?    @db.Text
+  isActive    Boolean    @default(true) @map("is_active")
+  sortOrder   Int        @default(0) @map("sort_order")
+
+  parent      Category?  @relation("CategoryTree", fields: [parentId], references: [id])
+  children    Category[] @relation("CategoryTree")
+  products    Product[]
+
+  @@index([parentId])
+  @@map("categories")
+}
+
+model Product {
+  id              String        @id @default(uuid()) @db.Uuid
+  shopId          String        @map("shop_id") @db.Uuid
+  categoryId      Int           @map("category_id")
+  name            String
+  slug            String        @unique
+  description     String?       @db.Text
+  status          ProductStatus @default(DRAFT)
+  price           Decimal       @db.Decimal(12, 2)
+  compareAtPrice  Decimal?      @map("compare_at_price") @db.Decimal(12, 2)
+  images          String[]      @default([])
+  attributes      Json?
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  shop            Shop          @relation(fields: [shopId], references: [id])
+  category        Category      @relation(fields: [categoryId], references: [id])
+  inventory       Inventory?
+  orderItems      OrderItem[]
+  cartItems       CartItem[]
+  reviews         Review[]
+
+  @@index([shopId])
+  @@index([categoryId])
+  @@index([status])
+  @@map("products")
+}
+
+model Inventory {
+  id        String   @id @default(uuid()) @db.Uuid
+  productId String   @unique @map("product_id") @db.Uuid
+  onHand    Int      @default(0) @map("on_hand")
+  reserved  Int      @default(0)
+  sold      Int      @default(0)
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  product Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
+  ledger  InventoryLedger[]
+
+  @@map("inventories")
+}
+
+model InventoryLedger {
+  id          String          @id @default(uuid()) @db.Uuid
+  inventoryId String          @map("inventory_id") @db.Uuid
+  deltaOnHand Int             @default(0) @map("delta_on_hand")
+  deltaReserve Int            @default(0) @map("delta_reserve")
+  deltaSold    Int            @default(0) @map("delta_sold")
+  reason       InventoryReason
+  referenceId  String?        @map("reference_id")
+  note         String?
+  createdAt    DateTime       @default(now()) @map("created_at")
+
+  inventory Inventory @relation(fields: [inventoryId], references: [id], onDelete: Cascade)
+
+  @@index([inventoryId])
+  @@index([referenceId])
+  @@map("inventory_ledger")
+}
+
+model Cart {
+  id        String     @id @default(uuid()) @db.Uuid
+  userId    String     @map("user_id") @db.Uuid
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @updatedAt @map("updated_at")
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items     CartItem[]
+
+  @@unique([userId])
+  @@map("carts")
+}
+
+model CartItem {
+  id        String   @id @default(uuid()) @db.Uuid
+  cartId    String   @map("cart_id") @db.Uuid
+  productId String   @map("product_id") @db.Uuid
+  quantity  Int
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  cart      Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  product   Product  @relation(fields: [productId], references: [id])
+
+  @@unique([cartId, productId])
+  @@map("cart_items")
+}
+
+model ParentOrder {
+  id              String            @id @default(uuid()) @db.Uuid
+  userId          String            @map("user_id") @db.Uuid
+  orderNumber     String            @unique @map("order_number")
+  idempotencyKey  String?           @unique @map("idempotency_key")
+  status          ParentOrderStatus @default(PLACED)
+  paymentStatus   PaymentStatus     @default(UNPAID) @map("payment_status")
+  subtotalAmount  Decimal           @map("subtotal_amount") @db.Decimal(12, 2)
+  discountAmount  Decimal           @default(0) @map("discount_amount") @db.Decimal(12, 2)
+  shippingAmount  Decimal           @default(0) @map("shipping_amount") @db.Decimal(12, 2)
+  totalAmount     Decimal           @map("total_amount") @db.Decimal(12, 2)
+  shippingAddress Json              @map("shipping_address")
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+
+  user            User              @relation(fields: [userId], references: [id])
+  shopOrders      ShopOrder[]
+  payments        Payment[]
+  couponUsages    CouponUsage[]
+
+  @@index([userId, createdAt])
+  @@map("parent_orders")
+}
+
+model ShopOrder {
+  id             String          @id @default(uuid()) @db.Uuid
+  parentOrderId  String          @map("parent_order_id") @db.Uuid
+  shopId         String          @map("shop_id") @db.Uuid
+  status         ShopOrderStatus @default(PENDING_CONFIRMATION)
+  subtotalAmount Decimal         @map("subtotal_amount") @db.Decimal(12, 2)
+  discountAmount Decimal         @default(0) @map("discount_amount") @db.Decimal(12, 2)
+  shippingAmount Decimal         @default(0) @map("shipping_amount") @db.Decimal(12, 2)
+  totalAmount    Decimal         @map("total_amount") @db.Decimal(12, 2)
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
+
+  parentOrder    ParentOrder     @relation(fields: [parentOrderId], references: [id], onDelete: Cascade)
+  shop           Shop            @relation(fields: [shopId], references: [id])
+  items          OrderItem[]
+
+  @@index([shopId, createdAt])
+  @@index([parentOrderId])
+  @@map("shop_orders")
+}
+
+model OrderItem {
+  id               String   @id @default(uuid()) @db.Uuid
+  shopOrderId      String   @map("shop_order_id") @db.Uuid
+  productId        String   @map("product_id") @db.Uuid
+  productName      String   @map("product_name")
+  productImage     String?  @map("product_image")
+  unitPrice        Decimal  @map("unit_price") @db.Decimal(12, 2)
+  quantity         Int
+  lineTotal        Decimal  @map("line_total") @db.Decimal(12, 2)
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  shopOrder        ShopOrder @relation(fields: [shopOrderId], references: [id], onDelete: Cascade)
+  product          Product   @relation(fields: [productId], references: [id])
+  reviews          Review[]
+
+  @@index([productId])
+  @@map("order_items")
+}
+
+model Payment {
+  id              String        @id @default(uuid()) @db.Uuid
+  parentOrderId   String        @map("parent_order_id") @db.Uuid
+  method          PaymentMethod
+  status          PaymentStatus @default(UNPAID)
+  amount          Decimal       @db.Decimal(12, 2)
+  provider        String?
+  providerRef     String?       @map("provider_ref")
+  rawPayload      Json?         @map("raw_payload")
+  paidAt          DateTime?     @map("paid_at")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  parentOrder     ParentOrder   @relation(fields: [parentOrderId], references: [id], onDelete: Cascade)
+
+  @@index([parentOrderId])
+  @@index([providerRef])
+  @@map("payments")
+}
+
+model Coupon {
+  id              String      @id @default(uuid()) @db.Uuid
+  code            String      @unique
+  scope           CouponScope
+  shopId          String?     @map("shop_id") @db.Uuid
+  type            CouponType
+  value           Decimal     @db.Decimal(12, 2)
+  minOrderAmount  Decimal?    @map("min_order_amount") @db.Decimal(12, 2)
+  maxDiscount     Decimal?    @map("max_discount") @db.Decimal(12, 2)
+  usageLimit      Int?        @map("usage_limit")
+  usedCount       Int         @default(0) @map("used_count")
+  startsAt        DateTime?   @map("starts_at")
+  expiresAt       DateTime?   @map("expires_at")
+  isActive        Boolean     @default(true) @map("is_active")
+  createdAt       DateTime    @default(now()) @map("created_at")
+
+  shop            Shop?       @relation(fields: [shopId], references: [id])
+  usages          CouponUsage[]
+
+  @@index([shopId])
+  @@map("coupons")
+}
+
+model CouponUsage {
+  id            String      @id @default(uuid()) @db.Uuid
+  couponId      String      @map("coupon_id") @db.Uuid
+  userId        String      @map("user_id") @db.Uuid
+  parentOrderId String      @map("parent_order_id") @db.Uuid
+  discountAmount Decimal    @map("discount_amount") @db.Decimal(12, 2)
+  createdAt     DateTime    @default(now()) @map("created_at")
+
+  coupon        Coupon      @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parentOrder   ParentOrder @relation(fields: [parentOrderId], references: [id], onDelete: Cascade)
+
+  @@unique([couponId, parentOrderId])
+  @@index([userId])
+  @@map("coupon_usages")
+}
+
+model Review {
+  id          String    @id @default(uuid()) @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  productId   String    @map("product_id") @db.Uuid
+  orderItemId String    @map("order_item_id") @db.Uuid
+  rating      Int
+  comment     String?   @db.Text
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product     Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  orderItem   OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, orderItemId])
+  @@index([productId])
+  @@map("reviews")
+}

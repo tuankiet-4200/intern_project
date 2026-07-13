@@ -1,0 +1,28 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: intern_project_postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: intern_project
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: intern_project_redis
+    ports:
+      - "6380:6379"
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: intern_project_rabbitmq
+    ports:
+      - "5673:5672"
+      - "15673:15672"
+
+volumes:
+  postgres_data:

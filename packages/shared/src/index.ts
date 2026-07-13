@@ -1,0 +1,10 @@
+export const ORDER_STATUS_FLOW = {
+  PENDING_CONFIRMATION: ['CONFIRMED', 'CANCELLED'],
+  CONFIRMED: ['PACKING', 'CANCELLED'],
+  PACKING: ['READY_TO_HANDOFF'],
+  READY_TO_HANDOFF: ['DELIVERED'],
+  DELIVERED: [],
+  CANCELLED: [],
+} as const;
+
+export type ShopOrderStatus = keyof typeof ORDER_STATUS_FLOW;
