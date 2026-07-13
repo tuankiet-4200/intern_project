@@ -1,19 +1,13 @@
-# Intern Project - Rebuilt Commerce Platform
+# Intern Project - Build Commerce Platform
 
-Rebuild tu ProjectIII theo huong gọn hơn, chặt logic nghiep vu hơn va co roadmap theo phase 2 tuan.
 
-## Pham vi ban rebuild
+## Pham vi
 
 Giữ trong 2 tháng đầu:
 - Customer web: browse, cart, checkout, orders, profile.
 - Vendor portal: shop onboarding, product, inventory, order handling.
 - Admin portal: user/shop/category moderation, basic operations dashboard.
 - Backend commerce core: auth, catalog, cart, order, payment, inventory, coupon, review.
-
-Tạm bỏ:
-- Shipper app.
-- AI chatbot.
-- Product recommendation.
 
 ## Tech direction
 
