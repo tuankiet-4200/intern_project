@@ -34,7 +34,7 @@ docker compose up -d
 npm run dev
 ```
 
-Phase 1 hiện là foundation/skeleton. Chua cai dependencies trong turn nay de tranh download network ngoai y muon.
+Phase 1 hiện là foundation/skeleton. Chua cai dependencies de tranh download network ngoai y muon.
 
 ## Phase 2 Progress
 

@@ -1,8 +1,8 @@
-# Roadmap 2 Thang - Commerce Rebuild
+# Roadmap 2 Thang - Commerce Platform
 
 ## Role & Product Direction
 
-Vai tro Tech Lead/TPM: rebuild he thong thuong mai dien tu multi-vendor theo tung buoc, uu tien business correctness, testability, observability va kha nang scale sau nay.
+Vai tro Tech Lead/TPM: build-from-scratch he thong thuong mai dien tu multi-vendor theo tung buoc, uu tien business correctness, testability, observability va kha nang scale sau nay.
 
 Nguyen tac:
 - Modular monolith truoc, tach boundary nhu microservice de giam do phuc tap van hanh.
