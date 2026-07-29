@@ -1,6 +1,6 @@
 # Project Context
 
-Last updated: 2026-07-28
+Last updated: 2026-07-29
 
 ## Project Identity
 
@@ -80,6 +80,14 @@ Phase 2 partial implementation:
 - Added ESLint flat config compatible with TypeScript and Next.js 16.
 - Upgraded Next.js from 16.1.7 to 16.2.12 after production dependency audit.
 - Added unit/service tests and a real PostgreSQL concurrent reservation integration test.
+- Added vendor product update, explicit status change, and terminal archive APIs with ownership enforcement.
+- Added admin category update/status APIs with arbitrary-depth public tree construction, cycle prevention, and dependency-safe deactivation.
+- Added authenticated user profile and address CRUD APIs.
+- Added default-address replacement behavior and address ownership enforcement.
+- Connected frontend login, public catalog, vendor product, admin shop review, admin category, and profile/address pages to live APIs.
+- Added loading, empty, and actionable error states to connected frontend workflows.
+- Added PostgreSQL integration tests for product ownership/archive, category hierarchy, and default-address behavior.
+- Fixed production build output so `npm run start` always executes the current compiled routes rather than a stale `dist/main`.
 
 Governance/context:
 
@@ -111,30 +119,30 @@ Verified:
 - API production build passed.
 - Web production build passed.
 - Root lint passed for API and web.
-- API test suite passed: 5 suites, 10 tests.
 - PostgreSQL concurrency test confirmed two competing reservations cannot oversell.
 - API runtime smoke tests passed for `/api/health`, `/api/products`, and demo vendor login.
+- Expanded API test suite passed: 8 suites, 15 tests.
+- API/web lint and production builds passed after Phase 2 CRUD/UI integration.
+- Protected runtime smoke tests passed for admin categories, vendor shops/products, and customer profile/addresses.
 
 ## Current Risks / Gaps
 
-- Frontend is not connected to API yet.
 - Auth has access token only; refresh-token flow is not implemented yet.
-- Product update/delete APIs are not implemented yet.
-- Admin category management is minimal.
 - Inventory reservation API exists but checkout orchestration is not implemented yet.
 - Cart/order/payment modules are still mostly placeholders.
-- Test coverage currently targets Phase 2 foundations; product/category CRUD and full API e2e coverage remain.
+- Full API e2e coverage for JWT/role-protected routes remains.
+- Frontend registration and shop onboarding are not connected yet.
+- Access tokens are currently stored in local storage; replace this with a hardened refresh-token/cookie strategy before production.
 - `npm audit --omit=dev` still reports high advisories through transitive Next.js/PostCSS/Sharp dependencies; npm does not currently offer a non-breaking automatic remediation for the installed release line.
 
 ## Next Recommended Step
 
 Continue Phase 2 by completing:
 
-1. Product update/delete and vendor ownership checks.
-2. Category admin update/deactivate.
-3. User profile/address APIs.
-4. Connect frontend login, catalog, vendor product, and admin shop pages to APIs.
-5. Add integration tests for the remaining Phase 2 operations.
+1. Refresh-token rotation, logout, and revocation.
+2. JWT/RBAC API e2e tests.
+3. Frontend registration and shop onboarding.
+4. Editable profile/product detail forms.
 
 After that, move to Phase 3:
 

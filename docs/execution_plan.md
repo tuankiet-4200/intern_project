@@ -1,6 +1,6 @@
 # Execution Plan
 
-Last updated: 2026-07-28
+Last updated: 2026-07-29
 
 This is the implementation source of truth for the build-from-scratch commerce platform. Agents must read this file together with `docs/project_context.md` before editing.
 
@@ -48,7 +48,7 @@ Acceptance:
 
 ## Phase 2 - Identity, Catalog, Shop Operations
 
-Status: in progress.
+Status: nearing completion.
 
 Done:
 
@@ -68,21 +68,20 @@ Done:
 - Inventory adjust/reserve uses compare-and-swap retries to protect concurrent writes.
 - Shop approval promotes a customer owner to vendor.
 - Auth, ownership, catalog visibility, inventory ledger, and concurrent reservation tests.
+- Vendor product update, status transition, and terminal archive APIs.
+- Category update, activate/deactivate, arbitrary-depth tree, and cycle/dependency validation.
+- User profile and address CRUD APIs with ownership and default-address handling.
+- Live frontend integration for login, public catalog, vendor products, admin shop review, admin categories, and profile/addresses.
+- Catalog and address integration tests against PostgreSQL.
+- Production build output is pinned to `src` and stale artifacts are removed before build.
 
 Next implementation order:
 
-1. Complete product operations:
-   - update product
-   - archive product
-   - status change
-   - vendor ownership guard
-2. Complete category operations:
-   - update category
-   - deactivate category
-   - parent-child validation
-3. Add user profile/address APIs.
-4. Connect frontend pages to APIs.
-5. Add integration tests for remaining product/category operations.
+1. Add refresh-token rotation and logout/revocation behavior.
+2. Add API e2e coverage for JWT and role-protected routes.
+3. Add frontend registration and shop onboarding forms.
+4. Add editable profile and product detail fields in the frontend.
+5. Close remaining Phase 2 security/dependency audit gaps where a non-breaking upstream fix is available.
 
 Acceptance:
 

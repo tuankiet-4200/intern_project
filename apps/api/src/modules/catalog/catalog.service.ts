@@ -1,8 +1,16 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { ProductStatus, ShopStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ShopsService } from '../shops/shops.service';
-import { CreateCategoryDto, CreateProductDto, ProductQueryDto } from './dto/catalog.dto';
+import {
+  CreateCategoryDto,
+  CreateProductDto,
+  ProductQueryDto,
+  UpdateCategoryDto,
+  UpdateCategoryStatusDto,
+  UpdateProductDto,
+  UpdateProductStatusDto,
+} from './dto/catalog.dto';
 
 @Injectable()
 export class CatalogService {
@@ -11,21 +19,80 @@ export class CatalogService {
     private readonly shops: ShopsService,
   ) {}
 
-  findCategories() {
-    return this.prisma.category.findMany({
+  async findCategories() {
+    const categories = await this.prisma.category.findMany({
       where: { isActive: true },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
-      include: { children: true },
+    });
+
+    const nodes = new Map(categories.map((category) => [category.id, { ...category, children: [] as typeof categories }]));
+    const roots: Array<(typeof categories)[number] & { children: typeof categories }> = [];
+    for (const category of categories) {
+      const node = nodes.get(category.id)!;
+      const parent = category.parentId === null ? undefined : nodes.get(category.parentId);
+      if (parent) parent.children.push(node);
+      else roots.push(node);
+    }
+    return roots;
+  }
+
+  findAdminCategories() {
+    return this.prisma.category.findMany({
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+      include: {
+        parent: { select: { id: true, name: true } },
+        _count: { select: { children: true, products: true } },
+      },
     });
   }
 
-  createCategory(dto: CreateCategoryDto) {
+  async createCategory(dto: CreateCategoryDto) {
+    await this.assertValidCategoryParent(undefined, dto.parentId);
     return this.prisma.category.create({
       data: {
         name: dto.name,
         slug: dto.slug,
+        description: dto.description,
         parentId: dto.parentId,
+        sortOrder: dto.sortOrder,
       },
+    });
+  }
+
+  async updateCategory(categoryId: number, dto: UpdateCategoryDto) {
+    await this.assertCategoryExists(categoryId);
+    if (dto.parentId !== undefined) {
+      await this.assertValidCategoryParent(categoryId, dto.parentId ?? undefined);
+    }
+
+    return this.prisma.category.update({
+      where: { id: categoryId },
+      data: {
+        name: dto.name,
+        slug: dto.slug,
+        description: dto.description,
+        parentId: dto.parentId,
+        sortOrder: dto.sortOrder,
+      },
+    });
+  }
+
+  async updateCategoryStatus(categoryId: number, dto: UpdateCategoryStatusDto) {
+    await this.assertCategoryExists(categoryId);
+    if (!dto.isActive) {
+      const [activeChildren, activeProducts] = await Promise.all([
+        this.prisma.category.count({ where: { parentId: categoryId, isActive: true } }),
+        this.prisma.product.count({
+          where: { categoryId, status: { in: [ProductStatus.DRAFT, ProductStatus.ACTIVE] } },
+        }),
+      ]);
+      if (activeChildren > 0) throw new BadRequestException('Deactivate child categories first');
+      if (activeProducts > 0) throw new BadRequestException('Archive or move category products first');
+    }
+
+    return this.prisma.category.update({
+      where: { id: categoryId },
+      data: { isActive: dto.isActive },
     });
   }
 
@@ -136,5 +203,91 @@ export class CatalogService {
         include: { inventory: true, category: true },
       }),
     );
+  }
+
+  async updateProduct(ownerId: string, productId: string, dto: UpdateProductDto) {
+    const product = await this.assertProductOwner(productId, ownerId);
+    if (product.status === ProductStatus.ARCHIVED) {
+      throw new BadRequestException('Archived product cannot be edited');
+    }
+    if (dto.categoryId !== undefined) await this.assertActiveCategory(dto.categoryId);
+
+    return this.prisma.product.update({
+      where: { id: productId },
+      data: {
+        name: dto.name,
+        slug: dto.slug,
+        categoryId: dto.categoryId,
+        price: dto.price,
+        description: dto.description,
+      },
+      include: { inventory: true, category: true },
+    });
+  }
+
+  async updateProductStatus(ownerId: string, productId: string, dto: UpdateProductStatusDto) {
+    const product = await this.assertProductOwner(productId, ownerId);
+    if (dto.status === ProductStatus.ARCHIVED) {
+      throw new BadRequestException('Use the archive endpoint');
+    }
+    if (product.status === ProductStatus.ARCHIVED) {
+      throw new BadRequestException('Archived product cannot be reactivated');
+    }
+    if (dto.status === ProductStatus.ACTIVE) {
+      if (product.shop.status !== ShopStatus.APPROVED) {
+        throw new BadRequestException('Shop must be approved before activating products');
+      }
+      await this.assertActiveCategory(product.categoryId);
+    }
+
+    return this.prisma.product.update({
+      where: { id: productId },
+      data: { status: dto.status },
+      include: { inventory: true, category: true },
+    });
+  }
+
+  async archiveProduct(ownerId: string, productId: string) {
+    await this.assertProductOwner(productId, ownerId);
+    return this.prisma.product.update({
+      where: { id: productId },
+      data: { status: ProductStatus.ARCHIVED },
+      include: { inventory: true, category: true },
+    });
+  }
+
+  private async assertProductOwner(productId: string, ownerId: string) {
+    const product = await this.prisma.product.findUnique({
+      where: { id: productId },
+      include: { shop: true },
+    });
+    if (!product) throw new NotFoundException('Product not found');
+    if (product.shop.ownerId !== ownerId) throw new ForbiddenException('Not your product');
+    return product;
+  }
+
+  private async assertCategoryExists(categoryId: number) {
+    const category = await this.prisma.category.findUnique({ where: { id: categoryId } });
+    if (!category) throw new NotFoundException('Category not found');
+    return category;
+  }
+
+  private async assertActiveCategory(categoryId: number) {
+    const category = await this.assertCategoryExists(categoryId);
+    if (!category.isActive) throw new BadRequestException('Category is inactive');
+    return category;
+  }
+
+  private async assertValidCategoryParent(categoryId?: number, parentId?: number) {
+    if (parentId === undefined) return;
+
+    let current = await this.assertActiveCategory(parentId);
+    while (current) {
+      if (categoryId !== undefined && current.id === categoryId) {
+        throw new BadRequestException('Category parent would create a cycle');
+      }
+      if (current.parentId === null) return;
+      current = await this.assertCategoryExists(current.parentId);
+    }
   }
 }

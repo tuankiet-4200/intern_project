@@ -45,5 +45,7 @@ Phase 1 foundation đã được build và chạy local với migration đầu t
 - Inventory: product inventory view, vendor adjustment, reserve API cho checkout Phase 3.
 - Baseline: dependencies, Prisma Client, migration `init`, seed demo, API/web production build.
 - Correctness: public product visibility, inventory ownership, concurrent reservation protection.
+- Operations: vendor product lifecycle, category governance, profile/address APIs.
+- Connected UI: login, live catalog, vendor products, admin shops/categories, profile/addresses.
 - Verification: backend tests, inventory concurrency integration test, lint, API/web build và API smoke test.
 - Run guide: `docs/run-guide.md`.

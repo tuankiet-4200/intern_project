@@ -31,14 +31,14 @@ export function AppShell({ children }: { children: ReactNode }) {
               </Link>
             ))}
           </nav>
-          <button className="flex h-10 w-10 items-center justify-center rounded-md border border-[var(--line)] bg-white" aria-label="Account">
+          <Link href="/profile" className="flex h-10 w-10 items-center justify-center rounded-md border border-[var(--line)] bg-white" aria-label="Account">
             <UserRound size={18} />
-          </button>
+          </Link>
         </div>
       </header>
       <main className="mx-auto max-w-7xl px-4 py-6">{children}</main>
       <footer className="border-t border-[var(--line)] py-5 text-center text-sm text-[var(--muted)]">
-        Phase 1 foundation: catalog, cart, order, vendor and admin workflows.
+        Phase 2 operations: identity, catalog, shop and inventory workflows.
       </footer>
     </div>
   );

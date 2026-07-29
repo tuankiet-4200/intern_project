@@ -1,5 +1,16 @@
 import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsNumber, IsOptional, IsString, MaxLength, Min, MinLength } from 'class-validator';
+import {
+  IsBoolean,
+  IsEnum,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsString,
+  MaxLength,
+  Min,
+  MinLength,
+  ValidateIf,
+} from 'class-validator';
 import { ProductStatus } from '@prisma/client';
 
 export class CreateCategoryDto {
@@ -10,8 +21,48 @@ export class CreateCategoryDto {
   slug!: string;
 
   @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @Type(() => Number)
   @IsInt()
   parentId?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  sortOrder?: number;
+}
+
+export class UpdateCategoryDto {
+  @IsOptional()
+  @IsString()
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  slug?: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @Type(() => Number)
+  @IsInt()
+  parentId?: number | null;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  sortOrder?: number;
+}
+
+export class UpdateCategoryStatusDto {
+  @IsBoolean()
+  isActive!: boolean;
 }
 
 export class CreateProductDto {
@@ -68,4 +119,38 @@ export class ProductQueryDto {
   @IsInt()
   @Min(1)
   limit = 20;
+}
+
+export class UpdateProductDto {
+  @IsOptional()
+  @IsString()
+  @MinLength(3)
+  @MaxLength(140)
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(3)
+  @MaxLength(160)
+  slug?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  categoryId?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  price?: number;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+}
+
+export class UpdateProductStatusDto {
+  @IsEnum(ProductStatus)
+  status!: ProductStatus;
 }
