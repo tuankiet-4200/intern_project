@@ -14,6 +14,7 @@ type Session = {
 };
 
 const SESSION_KEY = 'intern-commerce-session';
+let refreshRequest: Promise<Session> | null = null;
 
 export function getSession(): Session | null {
   if (typeof window === 'undefined') return null;
@@ -36,6 +37,15 @@ export function clearSession() {
 }
 
 export async function apiRequest<T>(path: string, init: RequestInit = {}, requireAuth = false): Promise<T> {
+  return requestWithRefresh<T>(path, init, requireAuth, true);
+}
+
+async function requestWithRefresh<T>(
+  path: string,
+  init: RequestInit,
+  requireAuth: boolean,
+  canRefresh: boolean,
+): Promise<T> {
   const headers = new Headers(init.headers);
   if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
 
@@ -45,14 +55,42 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}, requir
     headers.set('Authorization', `Bearer ${session.accessToken}`);
   }
 
-  const response = await fetch(`${API_URL}${path}`, { ...init, headers });
+  const response = await fetch(`${API_URL}${path}`, { ...init, headers, credentials: 'include' });
+  if (response.status === 401 && requireAuth && canRefresh) {
+    await refreshSession();
+    return requestWithRefresh<T>(path, init, requireAuth, false);
+  }
+
   const text = await response.text();
-  const payload = text ? (JSON.parse(text) as { message?: string | string[] }) : null;
+  const payload = text ? (JSON.parse(text) as T & { message?: string | string[] }) : null;
   if (!response.ok) {
     const message = Array.isArray(payload?.message) ? payload.message.join(', ') : payload?.message;
     throw new Error(message ?? `Request failed with status ${response.status}`);
   }
   return payload as T;
+}
+
+async function refreshSession() {
+  if (!refreshRequest) {
+    refreshRequest = fetch(`${API_URL}/auth/refresh`, {
+      method: 'POST',
+      credentials: 'include',
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Your session has expired. Please sign in again.');
+        const session = (await response.json()) as Session;
+        saveSession(session);
+        return session;
+      })
+      .catch((error) => {
+        clearSession();
+        throw error;
+      })
+      .finally(() => {
+        refreshRequest = null;
+      });
+  }
+  return refreshRequest;
 }
 
 export function formatVnd(value: string | number) {

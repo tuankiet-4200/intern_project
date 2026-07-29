@@ -58,7 +58,7 @@ Phase 1 foundation:
 - Added frontend Next.js operational shell and placeholder pages.
 - Added roadmap, business rules, and run guide.
 
-Phase 2 partial implementation:
+Phase 2 implementation:
 
 - Added Prisma module/service.
 - Added auth register/login with JWT.
@@ -88,6 +88,14 @@ Phase 2 partial implementation:
 - Added loading, empty, and actionable error states to connected frontend workflows.
 - Added PostgreSQL integration tests for product ownership/archive, category hierarchy, and default-address behavior.
 - Fixed production build output so `npm run start` always executes the current compiled routes rather than a stale `dist/main`.
+- Added `RefreshSession` persistence and migration `20260729051045_add_refresh_sessions`.
+- Added opaque refresh-token rotation with SHA-256 hashes, HttpOnly/SameSite cookies, reuse rejection, logout, and logout-all.
+- Reduced access-token default lifetime to 15 minutes.
+- Restricted public registration to customer accounts; vendor role now comes from approved shop onboarding.
+- Added auth/JWT/RBAC e2e coverage using the real Nest application and PostgreSQL.
+- Added frontend automatic access-token refresh and one-time protected request retry.
+- Added connected registration and shop onboarding pages.
+- Added editable profile and product fields.
 
 Governance/context:
 
@@ -124,27 +132,23 @@ Verified:
 - Expanded API test suite passed: 8 suites, 15 tests.
 - API/web lint and production builds passed after Phase 2 CRUD/UI integration.
 - Protected runtime smoke tests passed for admin categories, vendor shops/products, and customer profile/addresses.
+- Migration `20260729051045_add_refresh_sessions` was created and applied.
+- Unit/integration tests passed: 8 suites, 16 tests.
+- Auth/JWT/RBAC e2e tests passed: 1 suite, 2 tests.
+- Production auth smoke test passed for HttpOnly cookie issuance, rotation, reuse rejection, protected access, logout, and revocation.
+- Web production build passed with 14 routes.
 
 ## Current Risks / Gaps
 
-- Auth has access token only; refresh-token flow is not implemented yet.
 - Inventory reservation API exists but checkout orchestration is not implemented yet.
 - Cart/order/payment modules are still mostly placeholders.
-- Full API e2e coverage for JWT/role-protected routes remains.
-- Frontend registration and shop onboarding are not connected yet.
-- Access tokens are currently stored in local storage; replace this with a hardened refresh-token/cookie strategy before production.
+- Refresh-session cleanup for expired/revoked rows should be added as a maintenance job before production.
+- Access tokens remain in local storage; refresh tokens are HttpOnly. Consider in-memory access tokens plus CSP hardening in Phase 4.
 - `npm audit --omit=dev` still reports high advisories through transitive Next.js/PostCSS/Sharp dependencies; npm does not currently offer a non-breaking automatic remediation for the installed release line.
 
 ## Next Recommended Step
 
-Continue Phase 2 by completing:
-
-1. Refresh-token rotation, logout, and revocation.
-2. JWT/RBAC API e2e tests.
-3. Frontend registration and shop onboarding.
-4. Editable profile/product detail forms.
-
-After that, move to Phase 3:
+Phase 2 is complete. Move to Phase 3:
 
 1. Cart API.
 2. Checkout transaction.

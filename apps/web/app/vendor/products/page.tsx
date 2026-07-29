@@ -2,7 +2,7 @@
 
 import { AppShell } from '@/components/AppShell';
 import { apiRequest, formatVnd } from '@/lib/api';
-import { Archive, PackagePlus, RefreshCw } from 'lucide-react';
+import { Archive, PackagePlus, Pencil, RefreshCw } from 'lucide-react';
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 
 type Shop = { id: string; name: string; status: string };
@@ -22,6 +22,7 @@ export default function VendorProductsPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
+  const [editing, setEditing] = useState<Product | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -90,6 +91,7 @@ export default function VendorProductsPage() {
       {showCreate && shop ? (
         <CreateProductForm shopId={shop.id} categories={categories} onCreated={async () => { setShowCreate(false); await load(); }} />
       ) : null}
+      {editing ? <EditProductForm product={editing} onSaved={async () => { setEditing(null); await load(); }} /> : null}
       {loading ? <p className="rounded-md border border-[var(--line)] bg-white p-4">Loading products…</p> : null}
       {error ? <p className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}
       {!loading && !error && !shop ? <p className="rounded-md border border-[var(--line)] bg-white p-4">Create a shop before managing products.</p> : null}
@@ -109,6 +111,9 @@ export default function VendorProductsPage() {
                 <span className="flex gap-2">
                   {product.status !== 'ARCHIVED' ? (
                     <>
+                      <button className="rounded border border-[var(--line)] p-1" aria-label="Edit product" onClick={() => setEditing(product)}>
+                        <Pencil size={16} />
+                      </button>
                       <button className="rounded border border-[var(--line)] px-2 py-1" onClick={() => void setStatus(product, product.status === 'ACTIVE' ? 'DRAFT' : 'ACTIVE')}>
                         {product.status === 'ACTIVE' ? 'Draft' : 'Activate'}
                       </button>
@@ -125,6 +130,43 @@ export default function VendorProductsPage() {
         </div>
       ) : null}
     </AppShell>
+  );
+}
+
+function EditProductForm({ product, onSaved }: { product: Product; onSaved: () => Promise<void> }) {
+  const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSubmitting(true);
+    setError('');
+    const form = new FormData(event.currentTarget);
+    try {
+      await apiRequest(`/products/${product.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          name: form.get('name'),
+          price: Number(form.get('price')),
+        }),
+      }, true);
+      await onSaved();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Unable to update product');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <form className="mb-4 grid gap-3 rounded-md border border-[var(--line)] bg-white p-4 md:grid-cols-[1fr_1fr_auto]" onSubmit={submit}>
+      <input name="name" className="h-10 rounded border border-[var(--line)] px-3" defaultValue={product.name} required minLength={3} />
+      <input name="price" className="h-10 rounded border border-[var(--line)] px-3" type="number" min="0" defaultValue={product.price} required />
+      <button className="h-10 rounded bg-[var(--accent)] px-4 text-white disabled:opacity-60" disabled={submitting}>
+        {submitting ? 'Saving…' : 'Save product'}
+      </button>
+      {error ? <p className="text-sm text-red-700 md:col-span-3">{error}</p> : null}
+    </form>
   );
 }
 

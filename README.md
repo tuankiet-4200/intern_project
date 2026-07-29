@@ -47,5 +47,7 @@ Phase 1 foundation đã được build và chạy local với migration đầu t
 - Correctness: public product visibility, inventory ownership, concurrent reservation protection.
 - Operations: vendor product lifecycle, category governance, profile/address APIs.
 - Connected UI: login, live catalog, vendor products, admin shops/categories, profile/addresses.
+- Auth hardening: short-lived JWT access token, rotating HttpOnly refresh cookie, logout/revocation and RBAC e2e tests.
+- Onboarding UI: customer registration and shop approval request workflow.
 - Verification: backend tests, inventory concurrency integration test, lint, API/web build và API smoke test.
 - Run guide: `docs/run-guide.md`.

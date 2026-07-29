@@ -5,7 +5,7 @@ import { apiRequest, clearSession, type SessionUser } from '@/lib/api';
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-type Profile = SessionUser & { phone: string | null };
+type Profile = SessionUser & { phone: string | null; updatedAt: string };
 type Address = {
   id: string;
   recipient: string;
@@ -62,6 +62,24 @@ export default function ProfilePage() {
     }
   }
 
+  async function updateProfile(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    setError('');
+    try {
+      await apiRequest('/users/me', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          fullName: form.get('fullName'),
+          phone: form.get('phone') || undefined,
+        }),
+      }, true);
+      await load();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Unable to update profile');
+    }
+  }
+
   async function makeDefault(addressId: string) {
     try {
       await apiRequest(`/users/me/addresses/${addressId}`, {
@@ -74,9 +92,13 @@ export default function ProfilePage() {
     }
   }
 
-  function signOut() {
-    clearSession();
-    router.push('/login');
+  async function signOut() {
+    try {
+      await apiRequest('/auth/logout', { method: 'POST' });
+    } finally {
+      clearSession();
+      router.push('/login');
+    }
   }
 
   return (
@@ -86,10 +108,18 @@ export default function ProfilePage() {
           <h1 className="text-2xl font-semibold">Profile & addresses</h1>
           <p className="text-sm text-[var(--muted)]">{profile ? `${profile.fullName} · ${profile.role}` : 'Authenticated customer settings'}</p>
         </div>
-        <button className="rounded border border-[var(--line)] px-3 py-2" onClick={signOut}>Sign out</button>
+        <button className="rounded border border-[var(--line)] px-3 py-2" onClick={() => void signOut()}>Sign out</button>
       </div>
       {loading ? <p className="mt-4">Loading profile…</p> : null}
       {error ? <p className="mt-4 rounded bg-red-50 p-3 text-red-700">{error}</p> : null}
+
+      {profile ? (
+        <form key={profile.updatedAt} className="mt-4 grid gap-3 rounded-md border border-[var(--line)] bg-white p-4 md:grid-cols-[1fr_1fr_auto]" onSubmit={updateProfile}>
+          <input name="fullName" className="h-10 rounded border border-[var(--line)] px-3" defaultValue={profile.fullName} required />
+          <input name="phone" className="h-10 rounded border border-[var(--line)] px-3" defaultValue={profile.phone ?? ''} placeholder="Phone" />
+          <button className="h-10 rounded bg-[var(--accent)] px-4 text-white">Update profile</button>
+        </form>
+      ) : null}
 
       <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_0.8fr]">
         <section className="rounded-md border border-[var(--line)] bg-white p-4">

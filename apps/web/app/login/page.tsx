@@ -3,6 +3,7 @@
 import { AppShell } from '@/components/AppShell';
 import { apiRequest, saveSession, type SessionUser } from '@/lib/api';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { FormEvent, useState } from 'react';
 
 export default function LoginPage() {
@@ -56,6 +57,7 @@ export default function LoginPage() {
             </button>
           ))}
         </div>
+        <p className="mt-4 text-sm text-[var(--muted)]">New customer? <Link href="/register" className="font-medium text-[var(--accent)]">Create an account</Link></p>
       </section>
     </AppShell>
   );

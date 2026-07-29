@@ -48,7 +48,7 @@ Acceptance:
 
 ## Phase 2 - Identity, Catalog, Shop Operations
 
-Status: nearing completion.
+Status: complete.
 
 Done:
 
@@ -74,14 +74,12 @@ Done:
 - Live frontend integration for login, public catalog, vendor products, admin shop review, admin categories, and profile/addresses.
 - Catalog and address integration tests against PostgreSQL.
 - Production build output is pinned to `src` and stale artifacts are removed before build.
-
-Next implementation order:
-
-1. Add refresh-token rotation and logout/revocation behavior.
-2. Add API e2e coverage for JWT and role-protected routes.
-3. Add frontend registration and shop onboarding forms.
-4. Add editable profile and product detail fields in the frontend.
-5. Close remaining Phase 2 security/dependency audit gaps where a non-breaking upstream fix is available.
+- Opaque refresh sessions store SHA-256 token hashes and rotate through HttpOnly/SameSite cookies.
+- Refresh-token reuse is rejected; logout and logout-all revoke active sessions.
+- Public registration cannot self-provision vendor/admin roles.
+- API e2e coverage verifies refresh rotation, logout revocation, JWT authentication, and RBAC.
+- Frontend automatically refreshes expired access tokens once and retries the protected request.
+- Frontend registration, shop onboarding, editable profile, and editable product fields are connected.
 
 Acceptance:
 
@@ -90,6 +88,8 @@ Acceptance:
 - Inventory cannot become invalid.
 - Every stock change writes a ledger entry.
 - Admin account cannot be self-provisioned through public register.
+- Vendor role cannot be self-provisioned without shop approval.
+- Refresh-token rotation rejects reuse and logout revokes the active session.
 
 ## Phase 3 - Cart, Checkout, Order, Payment
 

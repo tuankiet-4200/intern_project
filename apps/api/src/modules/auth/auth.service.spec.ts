@@ -38,4 +38,22 @@ describe('AuthService', () => {
       }),
     ).rejects.toThrow('Email already registered');
   });
+
+  it('rejects public vendor role self-provisioning', async () => {
+    const prisma = {
+      user: {
+        findUnique: jest.fn<() => Promise<null>>().mockResolvedValue(null),
+      },
+    };
+    const service = new AuthService(prisma as never, {} as never);
+
+    await expect(
+      service.register({
+        email: 'vendor@example.com',
+        password: 'password123',
+        fullName: 'Vendor',
+        role: UserRole.VENDOR,
+      }),
+    ).rejects.toThrow('Vendor and admin roles must be provisioned through approved workflows');
+  });
 });

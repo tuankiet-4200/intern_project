@@ -18,6 +18,9 @@ Auth/RBAC:
 - Login rejects invalid credentials.
 - Protected routes require JWT.
 - Role-protected routes reject unauthorized roles.
+- Refresh token rotates and the old token cannot be reused.
+- Logout revokes the active refresh session.
+- Public registration cannot provision vendor/admin roles.
 
 Shop:
 

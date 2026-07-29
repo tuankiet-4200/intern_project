@@ -77,7 +77,8 @@ Register:
 ```bash
 curl -X POST http://localhost:3005/api/auth/register \
   -H "Content-Type: application/json" \
-  -d '{"email":"vendor@example.com","password":"password123","fullName":"Vendor Demo","role":"VENDOR"}'
+  -c /tmp/intern-project-cookies.txt \
+  -d '{"email":"customer2@example.com","password":"password123","fullName":"Customer Demo"}'
 ```
 
 Login:
@@ -85,10 +86,25 @@ Login:
 ```bash
 curl -X POST http://localhost:3005/api/auth/login \
   -H "Content-Type: application/json" \
+  -c /tmp/intern-project-cookies.txt \
   -d '{"email":"vendor@example.com","password":"password123"}'
 ```
 
 Dung `accessToken` tra ve lam Bearer token cho cac API vendor/admin.
+
+Refresh access token:
+
+```bash
+curl -X POST http://localhost:3005/api/auth/refresh \
+  -b /tmp/intern-project-cookies.txt \
+  -c /tmp/intern-project-cookies.txt
+```
+
+Logout va revoke refresh session:
+
+```bash
+curl -X POST http://localhost:3005/api/auth/logout -b /tmp/intern-project-cookies.txt
+```
 
 ## 7. Dung du an
 
