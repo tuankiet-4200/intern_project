@@ -4,7 +4,7 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: 'Intern Commerce',
-  description: 'Rebuilt commerce platform foundation',
+  description: 'Build-from-scratch multi-vendor commerce platform',
 };
 
 export default function RootLayout({

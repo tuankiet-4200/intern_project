@@ -34,7 +34,7 @@ docker compose up -d
 npm run dev
 ```
 
-Phase 1 hiện là foundation/skeleton. Chua cai dependencies de tranh download network ngoai y muon.
+Phase 1 foundation đã được build và chạy local với migration đầu tiên.
 
 ## Phase 2 Progress
 
@@ -43,4 +43,7 @@ Phase 1 hiện là foundation/skeleton. Chua cai dependencies de tranh download 
 - Shop onboarding: create shop, my shops, admin review queue, approve/reject/suspend.
 - Catalog: category API, public product listing, vendor product creation.
 - Inventory: product inventory view, vendor adjustment, reserve API cho checkout Phase 3.
+- Baseline: dependencies, Prisma Client, migration `init`, seed demo, API/web production build.
+- Correctness: public product visibility, inventory ownership, concurrent reservation protection.
+- Verification: backend tests, inventory concurrency integration test, lint, API/web build và API smoke test.
 - Run guide: `docs/run-guide.md`.

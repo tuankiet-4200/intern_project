@@ -1,6 +1,6 @@
 # Project Context
 
-Last updated: 2026-07-15
+Last updated: 2026-07-28
 
 ## Project Identity
 
@@ -70,6 +70,16 @@ Phase 2 partial implementation:
 - Added vendor product creation.
 - Added inventory view/adjust/reserve APIs.
 - Added frontend placeholder pages for login, vendor products, and admin shop review queue.
+- Installed workspace dependencies and committed the lockfile.
+- Generated Prisma Client and created/applied the initial migration.
+- Added idempotent demo seed data for admin/vendor/customer, an approved shop, categories, products, and inventory.
+- Enforced positive available inventory for public product list/detail.
+- Added vendor ownership enforcement for inventory ledger reads.
+- Added compare-and-swap retries for concurrent inventory adjustment/reservation.
+- Added customer-to-vendor promotion when a shop is approved.
+- Added ESLint flat config compatible with TypeScript and Next.js 16.
+- Upgraded Next.js from 16.1.7 to 16.2.12 after production dependency audit.
+- Added unit/service tests and a real PostgreSQL concurrent reservation integration test.
 
 Governance/context:
 
@@ -93,36 +103,28 @@ Verified:
 
 - `docker compose config` is valid.
 - npm workspace metadata is readable.
-
-Not yet verified:
-
-- `npm install`
-- Prisma generate/migrate
-- Backend runtime
-- Frontend runtime
-- TypeScript build
-- Automated tests
-
-Latest documentation verification:
-
-- Documentation files were created/updated only.
-- No code runtime/build/test command was run for this documentation-only change.
-
-Dependencies have not been installed yet.
+- `npm install` completed and `package-lock.json` exists.
+- PostgreSQL, Redis, and RabbitMQ containers start locally.
+- Prisma generate completed.
+- Migration `20260728074437_init` was created and applied.
+- Demo seed completed successfully.
+- API production build passed.
+- Web production build passed.
+- Root lint passed for API and web.
+- API test suite passed: 5 suites, 10 tests.
+- PostgreSQL concurrency test confirmed two competing reservations cannot oversell.
+- API runtime smoke tests passed for `/api/health`, `/api/products`, and demo vendor login.
 
 ## Current Risks / Gaps
 
-- No generated Prisma client yet.
-- No migrations created yet.
-- No seed data.
 - Frontend is not connected to API yet.
 - Auth has access token only; refresh-token flow is not implemented yet.
 - Product update/delete APIs are not implemented yet.
 - Admin category management is minimal.
 - Inventory reservation API exists but checkout orchestration is not implemented yet.
 - Cart/order/payment modules are still mostly placeholders.
-- Test coverage is not implemented yet.
-- The testing rule is now documented, but existing feature code still needs actual tests once dependencies are installed.
+- Test coverage currently targets Phase 2 foundations; product/category CRUD and full API e2e coverage remain.
+- `npm audit --omit=dev` still reports high advisories through transitive Next.js/PostCSS/Sharp dependencies; npm does not currently offer a non-breaking automatic remediation for the installed release line.
 
 ## Next Recommended Step
 
@@ -131,8 +133,8 @@ Continue Phase 2 by completing:
 1. Product update/delete and vendor ownership checks.
 2. Category admin update/deactivate.
 3. User profile/address APIs.
-4. Seed data for admin/vendor/customer/category.
-5. Install dependencies, run Prisma generate/migrate, and fix compile/runtime issues.
+4. Connect frontend login, catalog, vendor product, and admin shop pages to APIs.
+5. Add integration tests for the remaining Phase 2 operations.
 
 After that, move to Phase 3:
 

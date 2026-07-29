@@ -14,8 +14,8 @@ export class InventoryController {
 
   @Roles(UserRole.VENDOR, UserRole.ADMIN)
   @Get('products/:productId')
-  getByProduct(@Param('productId') productId: string) {
-    return this.inventory.getByProduct(productId);
+  getByProduct(@CurrentUser() user: AuthUser, @Param('productId') productId: string) {
+    return this.inventory.getByProduct(user.sub, user.role, productId);
   }
 
   @Roles(UserRole.VENDOR)

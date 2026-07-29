@@ -1,6 +1,6 @@
 # Execution Plan
 
-Last updated: 2026-07-15
+Last updated: 2026-07-28
 
 This is the implementation source of truth for the build-from-scratch commerce platform. Agents must read this file together with `docs/project_context.md` before editing.
 
@@ -22,7 +22,7 @@ This is the implementation source of truth for the build-from-scratch commerce p
 
 ## Phase 1 - Foundation & Domain Baseline
 
-Status: mostly complete.
+Status: complete.
 
 Done:
 
@@ -33,13 +33,12 @@ Done:
 - Frontend shell exists.
 - Roadmap/business rules/run guide exist.
 - Agent rules, coding standards, definition of done, testing strategy, task template, and ADRs exist.
-
-Remaining:
-
-- Install dependencies.
-- Generate Prisma client.
-- Create first migration.
-- Run backend/frontend locally.
+- Dependencies and lockfile exist.
+- Prisma Client generates successfully.
+- Initial migration exists and applies successfully.
+- PostgreSQL, Redis, and RabbitMQ start locally.
+- Backend and frontend production builds pass.
+- API health endpoint was verified at runtime.
 
 Acceptance:
 
@@ -63,30 +62,27 @@ Done:
 - Vendor product create/list APIs.
 - Inventory get/adjust/reserve APIs.
 - Login, vendor products, and admin shop queue UI placeholders.
+- Idempotent demo seed for admin/vendor/customer, approved shop, categories, products, and inventory.
+- Product list/detail visibility enforces active product, approved shop, and positive available stock.
+- Inventory ledger access enforces vendor ownership.
+- Inventory adjust/reserve uses compare-and-swap retries to protect concurrent writes.
+- Shop approval promotes a customer owner to vendor.
+- Auth, ownership, catalog visibility, inventory ledger, and concurrent reservation tests.
 
 Next implementation order:
 
-1. Install dependencies and compile-check the current Phase 2 backend.
-2. Fix any compile/runtime issues from Prisma/Nest integration.
-3. Add seed script:
-   - admin user
-   - vendor user
-   - customer user
-   - approved shop
-   - categories
-   - sample products with inventory
-4. Complete product operations:
+1. Complete product operations:
    - update product
    - archive product
    - status change
    - vendor ownership guard
-5. Complete category operations:
+2. Complete category operations:
    - update category
    - deactivate category
    - parent-child validation
-6. Add user profile/address APIs.
-7. Connect frontend pages to APIs.
-8. Add tests for auth, shop ownership, product visibility, and inventory adjustment.
+3. Add user profile/address APIs.
+4. Connect frontend pages to APIs.
+5. Add integration tests for remaining product/category operations.
 
 Acceptance:
 

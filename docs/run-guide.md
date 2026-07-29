@@ -11,6 +11,8 @@
 ```bash
 cd /Users/kietnt/Documents/intern_project
 cp .env.example .env
+cp apps/api/.env.example apps/api/.env
+cp apps/web/.env.example apps/web/.env.local
 ```
 
 Mac/Linux neu port `5433`, `6380`, `5673`, `15673`, `3000`, `3005` dang ban, hay doi port trong `.env` hoac `docker-compose.yml`.
@@ -38,7 +40,14 @@ docker compose ps
 ```bash
 npm run prisma:generate -w @intern-project/api
 npm run prisma:migrate -w @intern-project/api
+npm run prisma:seed -w @intern-project/api
 ```
+
+Tai khoan demo sau khi seed (mat khau chung `password123`):
+
+- `admin@example.com`
+- `vendor@example.com`
+- `customer@example.com`
 
 ## 5. Chay backend va frontend
 

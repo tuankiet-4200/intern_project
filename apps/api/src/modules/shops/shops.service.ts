@@ -46,16 +46,32 @@ export class ShopsService {
   }
 
   async review(shopId: string, dto: ReviewShopDto) {
-    if (![ShopStatus.APPROVED, ShopStatus.REJECTED, ShopStatus.SUSPENDED].includes(dto.status)) {
+    const reviewableStatuses: ShopStatus[] = [
+      ShopStatus.APPROVED,
+      ShopStatus.REJECTED,
+      ShopStatus.SUSPENDED,
+    ];
+    if (!reviewableStatuses.includes(dto.status)) {
       throw new BadRequestException('Invalid review status');
     }
 
     const shop = await this.prisma.shop.findUnique({ where: { id: shopId } });
     if (!shop) throw new NotFoundException('Shop not found');
 
-    return this.prisma.shop.update({
-      where: { id: shopId },
-      data: { status: dto.status },
+    return this.prisma.$transaction(async (tx) => {
+      const updatedShop = await tx.shop.update({
+        where: { id: shopId },
+        data: { status: dto.status },
+      });
+
+      if (dto.status === ShopStatus.APPROVED) {
+        await tx.user.updateMany({
+          where: { id: shop.ownerId, role: 'CUSTOMER' },
+          data: { role: 'VENDOR' },
+        });
+      }
+
+      return updatedShop;
     });
   }
 

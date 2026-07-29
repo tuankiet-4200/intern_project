@@ -35,6 +35,11 @@ export class CatalogService {
     const where = {
       status: ProductStatus.ACTIVE,
       shop: { status: ShopStatus.APPROVED },
+      inventory: {
+        is: {
+          onHand: { gt: this.prisma.inventory.fields.reserved },
+        },
+      },
       ...(query.categoryId ? { categoryId: query.categoryId } : {}),
       ...(query.search
         ? {
@@ -65,8 +70,17 @@ export class CatalogService {
   }
 
   findProductBySlug(slug: string) {
-    return this.prisma.product.findUnique({
-      where: { slug },
+    return this.prisma.product.findFirst({
+      where: {
+        slug,
+        status: ProductStatus.ACTIVE,
+        shop: { status: ShopStatus.APPROVED },
+        inventory: {
+          is: {
+            onHand: { gt: this.prisma.inventory.fields.reserved },
+          },
+        },
+      },
       include: {
         shop: { select: { id: true, name: true, slug: true, status: true } },
         category: true,
@@ -81,6 +95,7 @@ export class CatalogService {
 
     const category = await this.prisma.category.findUnique({ where: { id: dto.categoryId } });
     if (!category) throw new NotFoundException('Category not found');
+    if (!category.isActive) throw new BadRequestException('Category is inactive');
 
     return this.prisma.$transaction(async (tx) => {
       const product = await tx.product.create({

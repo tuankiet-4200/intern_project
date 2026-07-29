@@ -34,14 +34,14 @@ export class CatalogController {
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.VENDOR, UserRole.ADMIN)
+  @Roles(UserRole.VENDOR)
   @Post('shops/:shopId/products')
   createProduct(@CurrentUser() user: AuthUser, @Param('shopId') shopId: string, @Body() dto: CreateProductDto) {
     return this.catalog.createProduct(user.sub, shopId, dto);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.VENDOR, UserRole.ADMIN)
+  @Roles(UserRole.VENDOR)
   @Get('shops/:shopId/products')
   findVendorProducts(@CurrentUser() user: AuthUser, @Param('shopId') shopId: string) {
     return this.catalog.findVendorProducts(user.sub, shopId);
