@@ -1,6 +1,6 @@
 # Project Context
 
-Last updated: 2026-07-29
+Last updated: 2026-08-04
 
 ## Project Identity
 
@@ -97,6 +97,22 @@ Phase 2 implementation:
 - Added connected registration and shop onboarding pages.
 - Added editable profile and product fields.
 
+Phase 3 implementation:
+
+- Added authenticated cart APIs for get, add, quantity update, remove, and clear.
+- Added live customer cart UI and catalog add-to-cart action with stock/error states.
+- Added checkout quote with current product/shop/inventory validation and per-shop shipping totals.
+- Added global/shop coupon validation and pricing for active dates, minimum spend, maximum discount, and usage limit.
+- Added a serializable checkout commit transaction that creates a parent order, splits shop orders, snapshots product name/image/price, reserves inventory, writes ledger entries, records coupon usage/payment, and clears purchased cart items.
+- Added per-customer checkout idempotency and request fingerprint conflict detection.
+- Added transaction retry and optimistic reservation checks so concurrent checkout cannot oversell.
+- Added customer order list/detail/cancel APIs and connected order history UI.
+- Added vendor shop-order list and explicit fulfillment transition APIs plus a connected vendor order dashboard.
+- Added cancellation inventory release and delivery inventory sale ledger flows.
+- Added COD and bank-transfer payment records, explicit admin payment transitions, and append-only payment status history.
+- Added migration `20260804090000_phase3_checkout_orders` for checkout fingerprints, per-user idempotency, and payment audit history.
+- Added Phase 3 PostgreSQL integration tests covering split checkout, snapshot values, coupons, idempotency, state transitions, payment audit, inventory release/sale, and concurrent checkout.
+
 Governance/context:
 
 - Added `.agents/senior-tech-lead.rules.md`.
@@ -112,6 +128,7 @@ Governance/context:
   - `docs/adr/0003-payment-separate-from-fulfillment.md`
 - Clarified the project is build-from-scratch, not a rebuild of ProjectIII.
 - Updated agent rules so completed functionality should include tests and relevant test execution by default.
+- Updated agent rules so completed repository changes are scoped, committed with a conventional message, and pushed to the current `origin` branch after verification; force-push and unrelated-file staging are prohibited.
 
 ## Current Verification Status
 
@@ -137,21 +154,28 @@ Verified:
 - Auth/JWT/RBAC e2e tests passed: 1 suite, 2 tests.
 - Production auth smoke test passed for HttpOnly cookie issuance, rotation, reuse rejection, protected access, logout, and revocation.
 - Web production build passed with 14 routes.
+- Migration `20260804090000_phase3_checkout_orders` was created and applied successfully.
+- Phase 3 integration tests passed, including two concurrent checkouts competing for insufficient stock.
+- Full API suite passed: 9 suites, 18 tests.
+- API and web lint passed after Phase 3 implementation.
+- API production build passed.
+- Web production build passed with 15 routes, including customer cart/orders and vendor orders.
 
 ## Current Risks / Gaps
 
-- Inventory reservation API exists but checkout orchestration is not implemented yet.
-- Cart/order/payment modules are still mostly placeholders.
+- Bank transfer is currently a payment-record/manual-confirmation placeholder; signed provider webhook integration is still pending.
+- Refund statuses exist in the domain enum, but refund execution is intentionally blocked until an explicit refund transaction model is added so payment history is never silently rewritten.
+- Coupon evaluation is implemented at checkout, but coupon campaign management APIs/UI are not yet available.
 - Refresh-session cleanup for expired/revoked rows should be added as a maintenance job before production.
 - Access tokens remain in local storage; refresh tokens are HttpOnly. Consider in-memory access tokens plus CSP hardening in Phase 4.
 - `npm audit --omit=dev` still reports high advisories through transitive Next.js/PostCSS/Sharp dependencies; npm does not currently offer a non-breaking automatic remediation for the installed release line.
 
 ## Next Recommended Step
 
-Phase 2 is complete. Move to Phase 3:
+Phase 3 is complete. Move to Phase 4:
 
-1. Cart API.
-2. Checkout transaction.
-3. Order splitting by shop.
-4. Inventory reserve/release/sold flow.
-5. Payment abstraction.
+1. Add the review workflow after delivery.
+2. Cover the complete customer/vendor/admin happy path with e2e tests and demo seed support.
+3. Add request IDs, structured errors, rate limiting, and production logging.
+4. Add polling-based notifications where the order workflow needs them.
+5. Draft CI/CD, deployment, observability, and production runbooks.

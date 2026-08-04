@@ -38,7 +38,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       </header>
       <main className="mx-auto max-w-7xl px-4 py-6">{children}</main>
       <footer className="border-t border-[var(--line)] py-5 text-center text-sm text-[var(--muted)]">
-        Phase 2 operations: identity, catalog, shop and inventory workflows.
+        Phase 3 commerce: cart, checkout, split orders, inventory reservation and payment tracking.
       </footer>
     </div>
   );

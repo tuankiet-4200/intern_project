@@ -14,10 +14,10 @@ export default function VendorPage() {
           <h2 className="font-semibold">Product management</h2>
           <p className="mt-2 text-sm text-[var(--muted)]">Create, edit, activate and archive products.</p>
         </Link>
-        <section className="rounded-md border border-[var(--line)] bg-white p-4">
+        <Link href="/vendor/orders" className="rounded-md border border-[var(--line)] bg-white p-4">
           <h2 className="font-semibold">Shop orders</h2>
-          <p className="mt-2 text-sm text-[var(--muted)]">Begins with checkout in Phase 3.</p>
-        </section>
+          <p className="mt-2 text-sm text-[var(--muted)]">Confirm, pack, hand off or cancel incoming orders.</p>
+        </Link>
       </div>
     </AppShell>
   );

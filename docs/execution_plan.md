@@ -1,6 +1,6 @@
 # Execution Plan
 
-Last updated: 2026-07-29
+Last updated: 2026-08-04
 
 This is the implementation source of truth for the build-from-scratch commerce platform. Agents must read this file together with `docs/project_context.md` before editing.
 
@@ -93,7 +93,23 @@ Acceptance:
 
 ## Phase 3 - Cart, Checkout, Order, Payment
 
-Status: not started.
+Status: complete.
+
+Done:
+
+- Authenticated cart get/add/update/remove/clear APIs with active product, approved shop, and stock validation.
+- Checkout quote recalculates current product price and validates product/shop/inventory state.
+- Global/shop coupon calculation supports active dates, minimum spend, maximum discount, and usage limits.
+- Serializable checkout transaction creates the parent order, shop orders, immutable order-item snapshots, payment record, coupon usage, inventory reservations/ledger rows, and clears purchased cart items.
+- Checkout idempotency is unique per customer and rejects reuse with a different request fingerprint.
+- Optimistic inventory reservation plus transaction retry prevents concurrent checkout overselling.
+- Customer order list/detail/cancel and vendor shop-order list/status APIs.
+- Explicit shop-order transitions release cancelled reservations and convert delivered reservations to sold stock with ledger entries.
+- Parent fulfillment status and payment summary remain separate.
+- COD and bank-transfer payment records plus explicit admin payment transitions and append-only status history.
+- Customer catalog/cart/checkout/order UI and vendor order dashboard are connected to live APIs.
+- Migration `20260804090000_phase3_checkout_orders` adds checkout fingerprints, per-user idempotency, and payment status history.
+- Integration coverage verifies split checkout, snapshots, coupon pricing, idempotency, invalid transitions, inventory release/sale, payment audit, and concurrent no-oversell behavior.
 
 Implementation order:
 

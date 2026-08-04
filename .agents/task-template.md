@@ -41,10 +41,19 @@ Update `docs/project_context.md` with:
 - Known gaps/risks.
 - Next recommended action.
 
-## 6. Final Response
+## 6. Git Delivery
+
+- Inspect status and the final diff.
+- Stage only files belonging to the current task.
+- Commit with a concise conventional commit message.
+- Push the current branch to `origin` without force-push.
+- If commit or push is blocked, preserve local work and report the blocker.
+
+## 7. Final Response
 
 Report:
 
 - What changed.
 - What tests/verification ran.
+- Commit hash and pushed branch.
 - What remains blocked or next.

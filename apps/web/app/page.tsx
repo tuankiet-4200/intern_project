@@ -17,6 +17,8 @@ export default function Home() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [addingId, setAddingId] = useState('');
 
   useEffect(() => {
     apiRequest<{ items: Product[] }>('/products')
@@ -26,6 +28,23 @@ export default function Home() {
       })
       .finally(() => setLoading(false));
   }, []);
+
+  async function addToCart(product: Product) {
+    setAddingId(product.id);
+    setError('');
+    setNotice('');
+    try {
+      await apiRequest('/cart/items', {
+        method: 'POST',
+        body: JSON.stringify({ productId: product.id, quantity: 1 }),
+      }, true);
+      setNotice(`${product.name} was added to your cart.`);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Unable to add item to cart');
+    } finally {
+      setAddingId('');
+    }
+  }
 
   return (
     <AppShell>
@@ -40,6 +59,7 @@ export default function Home() {
 
           {loading ? <p className="rounded-md border border-[var(--line)] bg-white p-4">Loading catalog…</p> : null}
           {error ? <p className="rounded-md bg-red-50 p-4 text-red-700">{error}</p> : null}
+          {notice ? <p className="mb-3 rounded-md bg-emerald-50 p-3 text-sm text-emerald-800">{notice}</p> : null}
           {!loading && !error && products.length === 0 ? (
             <p className="rounded-md border border-[var(--line)] bg-white p-4 text-[var(--muted)]">No products are available.</p>
           ) : null}
@@ -59,8 +79,12 @@ export default function Home() {
                   </div>
                   <div className="mt-4 flex items-center justify-between text-sm">
                     <span className="text-[var(--muted)]">Available: {available}</span>
-                    <button className="rounded-md border border-[var(--line)] px-3 py-2" disabled title="Cart starts in Phase 3">
-                      Cart in Phase 3
+                    <button
+                      className="rounded-md bg-[var(--accent)] px-3 py-2 text-white disabled:opacity-60"
+                      disabled={addingId === product.id || available < 1}
+                      onClick={() => void addToCart(product)}
+                    >
+                      {addingId === product.id ? 'Adding…' : 'Add to cart'}
                     </button>
                   </div>
                 </article>
@@ -71,7 +95,7 @@ export default function Home() {
         <aside className="grid content-start gap-3">
           <Metric label="Available products" value={String(products.length)} icon={ShoppingBag} />
           <Metric label="Catalog source" value={error ? 'Offline' : 'Live API'} icon={ShieldCheck} />
-          <Metric label="Cart workflow" value="Phase 3" icon={PackageCheck} />
+          <Metric label="Cart workflow" value="Live" icon={PackageCheck} />
           <Metric label="API state" value={loading ? 'Loading' : error ? 'Error' : 'Ready'} icon={BarChart3} />
         </aside>
       </section>

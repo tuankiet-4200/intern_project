@@ -72,6 +72,18 @@ After completing a feature or meaningful behavior change:
 - If tests cannot be run because dependencies, database, generated client, or environment are missing, record the exact blocker and the command that should be run later.
 - Never claim tests passed if they were not actually run.
 
+## Git Delivery Requirement
+
+After a repository-changing task is complete and its required verification has passed:
+
+1. Inspect `git status` and the final diff.
+2. Stage only files changed for the current task. Never include unrelated user changes, secrets, local environment files, build output, or temporary artifacts.
+3. Create a concise conventional commit that describes the completed outcome.
+4. Push the commit to `origin` on the current branch without asking for another confirmation.
+5. Report the commit hash and pushed branch in the final response.
+
+Never use force-push. Never rewrite existing commits unless the user explicitly requests it. If verification fails, the work is incomplete, the remote rejects the push, credentials are unavailable, or the branch has diverged, do not bypass the problem; preserve the local changes and report the exact blocker.
+
 ## Engineering Standards
 
 - Prefer modular monolith first, with clear bounded contexts that can later split into services.
