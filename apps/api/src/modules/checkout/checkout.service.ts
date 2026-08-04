@@ -187,7 +187,7 @@ export class CheckoutService {
     const subtotal = groups.reduce((sum, group) => sum.add(group.subtotal), new Prisma.Decimal(0));
     const shippingPerShop = new Prisma.Decimal(process.env.SHIPPING_FEE_PER_SHOP ?? 30000);
     const shipping = shippingPerShop.mul(groups.length);
-    const coupon = couponCode ? await this.validateCoupon(client, couponCode, subtotal, groups) : null;
+    const coupon = couponCode ? await this.validateCoupon(client, userId, couponCode, subtotal, groups) : null;
     const discount = coupon ? this.calculateDiscount(coupon, subtotal, groups) : new Prisma.Decimal(0);
     const allocations = this.allocateDiscount(groups, discount, subtotal, coupon?.scope, coupon?.shopId);
     const pricedGroups = groups.map((group, index) => ({
@@ -248,6 +248,7 @@ export class CheckoutService {
 
   private async validateCoupon(
     client: DbClient,
+    userId: string,
     couponCode: string,
     subtotal: Prisma.Decimal,
     groups: ReturnType<CheckoutService['groupItems']>,
@@ -259,6 +260,12 @@ export class CheckoutService {
     if (coupon.expiresAt && coupon.expiresAt <= now) throw new BadRequestException('Coupon has expired');
     if (coupon.usageLimit !== null && coupon.usedCount >= coupon.usageLimit) {
       throw new BadRequestException('Coupon usage limit reached');
+    }
+    if (coupon.perUserLimit !== null) {
+      const userUsageCount = await client.couponUsage.count({ where: { couponId: coupon.id, userId } });
+      if (userUsageCount >= coupon.perUserLimit) {
+        throw new BadRequestException('Coupon usage limit reached for this account');
+      }
     }
     if (coupon.scope === CouponScope.SHOP && !groups.some((group) => group.shop.id === coupon.shopId)) {
       throw new BadRequestException('Coupon does not apply to cart shops');

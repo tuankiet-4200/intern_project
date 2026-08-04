@@ -1,6 +1,6 @@
 # Execution Plan
 
-Last updated: 2026-08-04
+Last updated: 2026-08-05
 
 This is the implementation source of truth for the build-from-scratch commerce platform. Agents must read this file together with `docs/project_context.md` before editing.
 
@@ -213,15 +213,6 @@ Phase 5A financial reliability completed:
 - Added partial/full/failed refund state aggregation without rewriting payment history.
 - Added PostgreSQL integration and HTTP e2e coverage for signature, replay, audit and concurrent refunds.
 
-Next implementation order:
-
-1. Coupon campaign admin API/UI and per-customer campaign limits.
-2. Redis-backed distributed rate limiter with fail-open/fail-closed policy and multi-instance tests.
-3. Refresh-session cleanup job plus frontend CSP/token-storage hardening.
-4. Provider-specific bank-transfer adapter and reconciliation job.
-5. Persisted notifications/outbox and operational UI.
-6. Staging deployment, backup/restore/load/rollback drills and provider-specific CD.
-
 Phase 5A acceptance:
 
 - Unsigned, stale or tampered webhook cannot mutate payment data.
@@ -229,6 +220,23 @@ Phase 5A acceptance:
 - A provider transaction reference cannot settle two payments/refunds in the same namespace.
 - Concurrent refund requests cannot make successful refunds exceed paid amount.
 - Partial and full refund outcomes remain auditable through append-only histories.
+
+Phase 5B coupon operations completed:
+
+- Added admin coupon list/create/update/status APIs and `/admin/coupons` workflow UI.
+- Added GLOBAL/SHOP, percentage/fixed, date, min/cap and positive-limit validation.
+- Added per-customer campaign limit and indexed CouponUsage lookup.
+- Enforced per-customer limit in both quote and Serializable checkout commit.
+- Locked code/scope/shop/type/value after first usage and prevented limits below historical usage.
+- Added database check constraints and PostgreSQL integration coverage including competing checkout.
+
+Next implementation order:
+
+1. Redis-backed distributed rate limiter with fail-open/fail-closed policy and multi-instance tests.
+2. Refresh-session cleanup job plus frontend CSP/token-storage hardening.
+3. Provider-specific bank-transfer adapter and reconciliation job.
+4. Persisted notifications/outbox and operational UI.
+5. Staging deployment, backup/restore/load/rollback drills and provider-specific CD.
 
 ## Backlog
 

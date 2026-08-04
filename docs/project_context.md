@@ -1,6 +1,6 @@
 # Project Context
 
-Last updated: 2026-08-04
+Last updated: 2026-08-05
 
 ## Project Identity
 
@@ -144,6 +144,16 @@ Phase 5A financial reliability:
 - Added PostgreSQL payment/refund integration test and raw HTTP webhook e2e security coverage.
 - Updated business rules, execution plan, handbook, runbook and ADR for the implemented financial flow.
 
+Phase 5B coupon operations:
+
+- Added Coupons module with admin list/create/update/activate/deactivate endpoints.
+- Added campaign validation for GLOBAL/SHOP scope, percentage/fixed value, shop, schedule, min/cap and limits.
+- Added `Coupon.perUserLimit`, `updatedAt`, indexed `(couponId,userId)` usage lookup and database check constraints.
+- Added per-customer usage validation in quote and Serializable checkout commit.
+- Locked economic campaign terms after first usage and prevented limits from contradicting historical usage.
+- Added operational `/admin/coupons` create/edit/status UI and linked it from the admin dashboard.
+- Added PostgreSQL integration coverage for campaign rules, two customers, account exhaustion and competing checkout.
+
 Governance/context:
 
 - Added `.agents/senior-tech-lead.rules.md`.
@@ -206,12 +216,17 @@ Verified:
 - Full API unit/integration regression suite passed after Phase 5A: 12 suites, 21 tests.
 - Root API/Web lint passed after Phase 5A.
 - API production build passed; Web production build passed with 15 static routes after rerunning outside the process-binding sandbox restriction.
+- Migration `20260805090000_phase5_coupon_campaigns` applied; database is at 5 migrations.
+- Full API unit/integration suite passed after Phase 5B: 13 suites, 22 tests.
+- Full E2E regression suite remained green: 3 suites, 4 tests.
+- Root lint and API production build passed after Phase 5B.
+- Web production build passed with 16 static routes including `/admin/coupons`.
 
 ## Current Risks / Gaps
 
 - Bank transfer has a signed provider-neutral webhook, but a provider-specific payload adapter/API reconciliation job is still pending.
 - Refund API/state/audit are implemented for bank transfer, but admin/customer refund UI and COD refund policy are still pending.
-- Coupon evaluation is implemented at checkout, but coupon campaign management APIs/UI are not yet available.
+- Coupon administration and per-user limits are implemented; vendor self-service campaigns and customer coupon discovery remain pending.
 - The current per-IP rate limiter is process-local; move it to an API gateway or Redis before horizontal API scaling.
 - CI is implemented, but provider-specific CD and a real staging deployment/restore drill are still pending.
 - Polling provides order updates, but there is no persisted notification inbox or event delivery yet.
@@ -223,8 +238,8 @@ Verified:
 
 The planned Phase 1-4 roadmap is complete. Recommended post-roadmap priorities:
 
-1. Add coupon campaign administration and per-customer campaign limits where required.
-2. Move rate limiting to Redis/API gateway and perform a multi-replica load test.
-3. Harden frontend token storage/CSP and add refresh-session cleanup.
-4. Add the selected bank-transfer provider adapter/reconciliation job and refund UI.
+1. Move rate limiting to Redis/API gateway and perform a multi-replica load test.
+2. Harden frontend token storage/CSP and add refresh-session cleanup.
+3. Add the selected bank-transfer provider adapter/reconciliation job and refund UI.
+4. Add vendor coupon self-service/customer discovery only after defining moderation rules.
 5. Deploy to staging, run backup/restore and rollback drills, then connect provider-specific CD.

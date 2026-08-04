@@ -63,7 +63,9 @@ Payment:
 
 - Coupon co scope `GLOBAL` hoac `SHOP`.
 - Kiem tra active, expiry, min order amount, max discount, usage limit.
+- Campaign co the gioi han tong luot va luot theo tung customer; quote va commit deu phai kiem tra lai.
 - Usage duoc ghi khi checkout thanh cong, can unique theo coupon/user/order tuy campaign.
+- Khong doi code/scope/shop/type/value sau khi da co usage; deactivate thay vi xoa campaign da dung.
 
 ## Review
 

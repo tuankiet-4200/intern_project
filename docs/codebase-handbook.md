@@ -1,8 +1,8 @@
 # Codebase Handbook - Multi-Vendor Commerce Platform
 
-Last updated: 2026-08-04
+Last updated: 2026-08-05
 
-Tài liệu này giải thích code và luồng chạy hiện tại của dự án cho developer mới, đặc biệt là fresher. Đây không phải tài liệu ý tưởng: nội dung bám theo source code đến Phase 5A financial reliability hiện tại.
+Tài liệu này giải thích code và luồng chạy hiện tại của dự án cho developer mới, đặc biệt là fresher. Đây không phải tài liệu ý tưởng: nội dung bám theo source code đến Phase 5B coupon operations hiện tại.
 
 Khi code thay đổi, tài liệu này phải được cập nhật cùng task. Không để tài liệu mô tả endpoint, trạng thái hoặc invariant đã khác với code.
 
@@ -61,6 +61,7 @@ Không bắt đầu sửa service trước khi hiểu:
 - Cart.
 - Checkout quote và checkout commit.
 - Coupon evaluation trong checkout.
+- Coupon campaign administration và per-customer usage limits.
 - Parent order, shop order và order item snapshot.
 - Customer order history/cancel.
 - Vendor fulfillment.
@@ -76,7 +77,6 @@ Chưa hoàn thiện hoặc mới là placeholder:
 
 - Signed webhook hiện dùng contract provider-neutral; adapter map payload riêng của SePay/VNPay/MoMo và reconciliation job vẫn chưa có.
 - Refund đã có API/admin transaction và provider callback, nhưng chưa có admin/customer UI.
-- Chưa có API/UI quản trị coupon campaign.
 - Redis và RabbitMQ đã có local infrastructure nhưng business flow hiện tại chưa publish/consume message.
 - Notification hiện là polling; chưa có notification inbox/event delivery.
 - Rate limiter hiện dùng memory của một API process; cần gateway/Redis trước khi chạy nhiều replica.
@@ -125,6 +125,7 @@ Backend là một process NestJS nhưng chia theo bounded context:
 - `inventory`: stock và ledger.
 - `cart`: giỏ hàng.
 - `checkout`: pricing và tạo đơn nguyên tử.
+- `coupons`: campaign lifecycle, schedule và usage policy.
 - `orders`: fulfillment.
 - `payments`: payment state.
 - `reviews`: review eligibility, ownership và public aggregate.
@@ -945,8 +946,11 @@ Check:
 2. Đã tới `startsAt`.
 3. Chưa qua `expiresAt`.
 4. `usedCount < usageLimit` nếu có limit.
-5. SHOP coupon phải có shop tương ứng trong cart.
-6. Eligible subtotal đạt `minOrderAmount`.
+5. Đếm CouponUsage theo `(couponId,userId)` và yêu cầu count nhỏ hơn `perUserLimit` nếu campaign cấu hình.
+6. SHOP coupon phải có shop tương ứng trong cart.
+7. Eligible subtotal đạt `minOrderAmount`.
+
+Quote kiểm tra per-user limit để báo lỗi sớm. Commit chạy lại cùng check trong Serializable transaction. Index `(couponId,userId)` làm predicate read ổn định; nếu hai checkout cùng user/coupon cạnh tranh, PostgreSQL abort một transaction, service retry và lần sau thấy limit đã hết. CouponUsage chỉ được tạo trong cùng transaction với order.
 
 Eligible subtotal:
 
@@ -973,7 +977,31 @@ GLOBAL discount được phân bổ tỷ lệ theo shop subtotal. Phần sai s�
 
 SHOP discount chỉ phân bổ cho shop áp dụng.
 
-### 15.6 Công thức tổng
+### 15.6 Quản trị coupon campaign
+
+Actor: ADMIN. Frontend entry: `/admin/coupons`. Backend module: `modules/coupons`.
+
+Endpoints:
+
+- `GET /admin/coupons`: search/scope/status, pagination tối đa 100; trả shop và usage count.
+- `POST /admin/coupons`: tạo GLOBAL hoặc SHOP campaign.
+- `PATCH /admin/coupons/:couponId`: sửa cấu hình.
+- `PATCH /admin/coupons/:couponId/status`: activate/deactivate.
+
+Create/Update DTO nhận money dưới dạng decimal string để không đưa floating point vào boundary. Code được trim/uppercase. Rule:
+
+- percentage value trong `(0,100]`; fixed amount lớn hơn 0;
+- SHOP bắt buộc `shopId` tồn tại; GLOBAL luôn lưu `shopId=null`;
+- start phải trước expiry;
+- total/per-user limit là integer dương và per-user không vượt total limit;
+- max discount dương, minimum order không âm;
+- expired hoặc exhausted campaign không được activate.
+
+Sau khi có CouponUsage, `code`, `scope`, `shopId`, `type`, `value` bị khóa vì đây là điều khoản kinh tế đã áp vào order. Admin vẫn có thể sửa schedule, min/cap/limits, nhưng total limit không thấp hơn `usedCount` và per-user limit không thấp hơn mức một user đã dùng thực tế. Update chạy Serializable transaction; code unique conflict trả `409`.
+
+Không delete coupon. Deactivate bảo toàn CouponUsage/order audit. Database migration còn thêm check constraints cho limit dương/nhất quán để script ngoài application cũng không ghi state sai.
+
+### 15.7 Công thức tổng
 
 ```text
 parent subtotal = sum(shop subtotal)
@@ -1560,6 +1588,15 @@ Backend ownership/status rules vẫn bắt buộc; disabled button trên UI khô
 - Toggle active.
 - Backend reject deactivate nếu còn active child/product.
 
+### 22.12 `/admin/coupons`
+
+- Load tối đa 100 campaign cùng approved shops.
+- Form dùng chung create/edit cho scope, shop, type, value, min/cap, total/per-user limit và schedule.
+- Empty optional field khi edit gửi `null` để xóa policy cũ; create thì omit field.
+- Card hiện used count, per-user limit, schedule, shop và status.
+- Edit economic terms sau usage vẫn được UI gửi nhưng backend reject; backend là business source of truth.
+- Activate/deactivate reload server state và hiển thị actionable error.
+
 ---
 
 ## 23. API endpoint matrix
@@ -1608,6 +1645,10 @@ Mọi path dưới đây có prefix `/api`.
 | DELETE | `/cart` | Cart owner | Clear cart |
 | POST | `/checkout/quote` | Customer/Vendor | Reprice cart |
 | POST | `/checkout/commit` | Customer/Vendor | Atomic checkout |
+| GET | `/admin/coupons` | Admin | Search/paginate campaigns |
+| POST | `/admin/coupons` | Admin | Create global/shop campaign |
+| PATCH | `/admin/coupons/:id` | Admin | Update mutable campaign policy |
+| PATCH | `/admin/coupons/:id/status` | Admin | Activate/deactivate campaign |
 | GET | `/orders` | Customer/Vendor | Own parent orders |
 | GET | `/orders/:id` | Order owner | Own order detail |
 | PATCH | `/orders/:id/cancel` | Order owner | Cancel eligible parent order |
@@ -1671,6 +1712,7 @@ Không sửa migration cũ đã được chia sẻ/applied. Tạo migration mớ
 - Refresh sessions.
 - Phase 3 checkout fingerprints, per-user idempotency và payment history.
 - Phase 5 financial reliability: partial-refund status, refunds/history, webhook event audit và provider reference uniqueness.
+- Phase 5 coupon campaigns: per-user limit, updated timestamp, usage lookup index và database limit constraints.
 
 ### 25.3 Seed
 
@@ -1713,6 +1755,7 @@ Kết nối PostgreSQL thật:
 - Inventory concurrent reserve.
 - Phase 3 checkout/order/payment.
 - Payment signed webhook và partial/full/concurrent refund.
+- Coupon campaign rules, immutable used terms, per-account enforcement và competing checkout.
 - Review buyer/delivery/duplicate/ownership rules.
 - Rate limiter response shape và threshold.
 

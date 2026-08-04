@@ -5,6 +5,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { CartModule } from './modules/cart/cart.module';
 import { CatalogModule } from './modules/catalog/catalog.module';
 import { CheckoutModule } from './modules/checkout/checkout.module';
+import { CouponsModule } from './modules/coupons/coupons.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
 import { OrdersModule } from './modules/orders/orders.module';
 import { PaymentsModule } from './modules/payments/payments.module';
@@ -24,6 +25,7 @@ import { PrismaModule } from './prisma/prisma.module';
     InventoryModule,
     CartModule,
     CheckoutModule,
+    CouponsModule,
     OrdersModule,
     PaymentsModule,
     ReviewsModule,

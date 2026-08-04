@@ -59,6 +59,13 @@ Payment:
 - COD and bank transfer flows remain separate from fulfillment.
 - Refund records do not mutate historical payment records silently.
 
+Coupon:
+
+- Admin campaign DTO/service rejects invalid money, dates, scope/shop and limits.
+- Used campaign economic terms cannot be rewritten.
+- Quote and commit enforce global and per-customer limits.
+- Competing checkout cannot create usage beyond a per-customer limit.
+
 Frontend:
 
 - Critical pages render.

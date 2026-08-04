@@ -14,10 +14,10 @@ export default function AdminPage() {
           <h2 className="font-semibold">Category governance</h2>
           <p className="mt-2 text-sm text-[var(--muted)]">Manage category hierarchy and status.</p>
         </Link>
-        <section className="rounded-md border border-[var(--line)] bg-white p-4">
-          <h2 className="font-semibold">User moderation</h2>
-          <p className="mt-2 text-sm text-[var(--muted)]">Planned after the Phase 2 customer profile workflow.</p>
-        </section>
+        <Link href="/admin/coupons" className="rounded-md border border-[var(--line)] bg-white p-4">
+          <h2 className="font-semibold">Coupon campaigns</h2>
+          <p className="mt-2 text-sm text-[var(--muted)]">Create, schedule, limit, and activate discount campaigns.</p>
+        </Link>
       </div>
     </AppShell>
   );
