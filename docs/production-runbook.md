@@ -21,8 +21,8 @@ Giới hạn hiện tại:
 
 - Rate limiter dùng memory của một API process. Chỉ xem là protection baseline cho một replica. Trước khi horizontal scaling, chuyển counter sang Redis hoặc API gateway distributed rate limiter.
 - Redis và RabbitMQ chưa nằm trong critical business path.
-- Bank transfer chưa có signed webhook/provider reconciliation.
-- Refund chưa có transaction model riêng.
+- Bank transfer có signed provider-neutral webhook và refund transaction; adapter/reconciliation theo provider cụ thể chưa có.
+- Refund API chưa có admin/customer UI.
 - Access token phía Web còn ở local storage; cần CSP mạnh và sau đó chuyển sang in-memory strategy nếu threat model yêu cầu.
 
 ## 2. Kiến trúc deploy đề xuất
@@ -63,6 +63,9 @@ API:
 | `RATE_LIMIT_MAX` | Request/IP/window; tune từ traffic thật |
 | `RATE_LIMIT_WINDOW_MS` | Window milliseconds |
 | `TRUST_PROXY_HOPS` | Số reverse proxy đáng tin trước API; `0` khi gọi trực tiếp |
+| `BANK_TRANSFER_PROVIDER` | Stable namespace, không đổi sau khi đã nhận event/reference |
+| `BANK_TRANSFER_WEBHOOK_SECRET` | HMAC secret tối thiểu 32 ký tự từ secret manager |
+| `PAYMENT_WEBHOOK_TOLERANCE_SECONDS` | Replay window, khuyến nghị `300`, tối thiểu `30` |
 
 Web:
 
@@ -71,11 +74,11 @@ Web:
 | `NODE_ENV=production` | Next production mode |
 | `NEXT_PUBLIC_API_URL` | Public HTTPS URL có `/api` prefix |
 
-Future integrations:
+Infrastructure/future integrations:
 
 - `REDIS_URL` khi limiter/cache chuyển sang Redis.
 - `RABBITMQ_URL` khi publish/consume events.
-- Provider secrets/webhook secret khi bank transfer integration được triển khai.
+- Provider API credential khi thêm request-out adapter/reconciliation; webhook secret ở trên đã bắt buộc cho callback.
 
 Không log các biến secret.
 
@@ -242,6 +245,19 @@ Trên staging hoặc production test tenant được phép:
 
 Không chạy destructive/cancel/refund smoke trên order thật của customer.
 
+### 8.5 Payment webhook smoke
+
+Chỉ chạy trên staging payment fixture:
+
+1. Gửi exact raw JSON với timestamp hiện tại và HMAC `sha256(secret, timestamp + "." + rawBody)`.
+2. Callback success trả `200`, Payment/ParentOrder thành `PAID` và có hai history rows khi đi từ `UNPAID`.
+3. Gửi lại exact event trả `duplicate: true`; `payment_webhook_events` vẫn chỉ một row.
+4. Cùng event ID nhưng payload khác trả `409`.
+5. Signature sai hoặc timestamp ngoài tolerance trả `401` và không tạo event/payment mutation.
+6. Với refund fixture, amount vượt remaining refundable phải trả `400` trước khi gọi provider.
+
+Không dùng production secret trong local script/log/shell history. Provider-specific sandbox phải có secret riêng staging.
+
 ## 9. Observability
 
 ### 9.1 Request ID
@@ -381,7 +397,9 @@ Không chạy SQL rollback ad-hoc khi chưa có backup và review.
 1. Không tự mark PAID chỉ dựa vào screenshot/customer message.
 2. Kiểm tra amount, provider reference và order ID.
 3. Giữ fulfillment/payment state tách biệt.
-4. Khi provider integration tồn tại, reconcile từ signed webhook/provider API.
+4. Tìm event theo unique `(provider,event_id)`, so payload hash, amount và provider reference.
+5. Nếu callback hợp lệ bị timeout, provider có thể retry exact event; không sửa Payment/Refund trực tiếp để né replay guard.
+6. Khi có provider API adapter, reconciliation chỉ xác minh/bù event thiếu qua cùng state machine.
 
 ### 13.5 Refresh/auth incident
 
@@ -400,7 +418,7 @@ Không chạy SQL rollback ad-hoc khi chưa có backup và review.
 - Dependency audit trong release cadence.
 - DB/network least privilege.
 - Admin account MFA/SSO khi identity provider được bổ sung.
-- Provider webhook signature, replay protection và idempotency trước payment integration.
+- Webhook secret tối thiểu 32 ký tự, exact raw-body HMAC, timestamp window, replay/idempotency tests đều pass.
 - Không đưa `.env`, dumps, logs có PII/token vào Git/artifact.
 
 ## 15. Release completion checklist

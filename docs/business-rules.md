@@ -55,7 +55,9 @@ Shop order:
 Payment:
 - `UNPAID` -> `AUTHORIZED` -> `PAID`
 - `UNPAID` -> `FAILED`
-- `PAID` -> `REFUND_PENDING` -> `REFUNDED`
+- `PAID` hoặc `PARTIALLY_REFUNDED` -> `REFUND_PENDING`
+- `REFUND_PENDING` -> `PARTIALLY_REFUNDED` hoặc `REFUNDED`
+- Refund provider fail đưa payment về `PAID` hoặc `PARTIALLY_REFUNDED` theo tổng refund đã thành công.
 
 ## Coupon
 

@@ -130,6 +130,20 @@ Phase 4 implementation:
 - Added `docs/production-runbook.md` for environment, release, migration, smoke checks, observability, backup, rollback, security, and incident response.
 - Updated `docs/codebase-handbook.md` so every Phase 4 flow and operational limitation is explained for fresher developers.
 
+Phase 5A financial reliability:
+
+- Added `PARTIALLY_REFUNDED`, Refund, RefundStatusHistory and PaymentWebhookEvent Prisma domain records.
+- Added migration `20260804150000_phase5_financial_reliability` with provider/event/idempotency uniqueness.
+- Enabled Nest raw-body capture for cryptographic webhook verification.
+- Added provider-neutral bank-transfer webhook DTO/controller/service using HMAC-SHA256, timestamp tolerance and constant-time comparison.
+- Added exact event replay behavior and same-event/different-payload conflict protection without storing raw provider payload.
+- Added bank-transfer payment success/failure processing with exact Decimal amount matching and append-only payment history.
+- Added admin partial/full refund requests with per-payment idempotency, remaining refundable calculation and one-pending-refund constraint.
+- Added refund provider success/failure callbacks, `PARTIALLY_REFUNDED`/`REFUNDED` aggregation and ParentOrder payment summary synchronization.
+- Added Serializable retry/compare-and-swap protection so concurrent refund requests cannot over-refund.
+- Added PostgreSQL payment/refund integration test and raw HTTP webhook e2e security coverage.
+- Updated business rules, execution plan, handbook, runbook and ADR for the implemented financial flow.
+
 Governance/context:
 
 - Added `.agents/senior-tech-lead.rules.md`.
@@ -186,11 +200,17 @@ Verified:
 - Root API/Web lint passed after Phase 4.
 - API and Web production builds passed after Phase 4.
 - Production API runtime smoke passed for liveness, PostgreSQL readiness, request/security headers, structured 404, complete artifact startup, and correlated 404 logging.
+- Migration `20260804150000_phase5_financial_reliability` applied successfully and Prisma Client regenerated.
+- Phase 5 payment/refund PostgreSQL integration test passed, including signature, replay, partial/full and concurrent refund cases.
+- Full e2e suite passed after adding webhook HTTP security coverage: 3 suites, 4 tests.
+- Full API unit/integration regression suite passed after Phase 5A: 12 suites, 21 tests.
+- Root API/Web lint passed after Phase 5A.
+- API production build passed; Web production build passed with 15 static routes after rerunning outside the process-binding sandbox restriction.
 
 ## Current Risks / Gaps
 
-- Bank transfer is currently a payment-record/manual-confirmation placeholder; signed provider webhook integration is still pending.
-- Refund statuses exist in the domain enum, but refund execution is intentionally blocked until an explicit refund transaction model is added so payment history is never silently rewritten.
+- Bank transfer has a signed provider-neutral webhook, but a provider-specific payload adapter/API reconciliation job is still pending.
+- Refund API/state/audit are implemented for bank transfer, but admin/customer refund UI and COD refund policy are still pending.
 - Coupon evaluation is implemented at checkout, but coupon campaign management APIs/UI are not yet available.
 - The current per-IP rate limiter is process-local; move it to an API gateway or Redis before horizontal API scaling.
 - CI is implemented, but provider-specific CD and a real staging deployment/restore drill are still pending.
@@ -203,8 +223,8 @@ Verified:
 
 The planned Phase 1-4 roadmap is complete. Recommended post-roadmap priorities:
 
-1. Integrate signed bank-transfer webhooks and an explicit refund transaction model.
-2. Add coupon campaign administration and per-customer campaign limits where required.
-3. Move rate limiting to Redis/API gateway and perform a multi-replica load test.
-4. Harden frontend token storage/CSP and add refresh-session cleanup.
+1. Add coupon campaign administration and per-customer campaign limits where required.
+2. Move rate limiting to Redis/API gateway and perform a multi-replica load test.
+3. Harden frontend token storage/CSP and add refresh-session cleanup.
+4. Add the selected bank-transfer provider adapter/reconciliation job and refund UI.
 5. Deploy to staging, run backup/restore and rollback drills, then connect provider-specific CD.

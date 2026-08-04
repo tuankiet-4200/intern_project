@@ -2,7 +2,7 @@
 
 Last updated: 2026-08-04
 
-Tài liệu này giải thích code và luồng chạy hiện tại của dự án cho developer mới, đặc biệt là fresher. Đây không phải tài liệu ý tưởng: nội dung được bám theo source code đang có đến hết Phase 3.
+Tài liệu này giải thích code và luồng chạy hiện tại của dự án cho developer mới, đặc biệt là fresher. Đây không phải tài liệu ý tưởng: nội dung bám theo source code đến Phase 5A financial reliability hiện tại.
 
 Khi code thay đổi, tài liệu này phải được cập nhật cùng task. Không để tài liệu mô tả endpoint, trạng thái hoặc invariant đã khác với code.
 
@@ -65,6 +65,7 @@ Không bắt đầu sửa service trước khi hiểu:
 - Customer order history/cancel.
 - Vendor fulfillment.
 - Payment record, payment state transition và audit history.
+- Signed bank-transfer webhook, replay protection và explicit partial/full refund transactions.
 - Review sau khi giao hàng, public review aggregate và customer review UI.
 - Polling order status 15 giây cho customer/vendor.
 - Request ID, security headers, structured errors, HTTP timing logs và rate limiting baseline.
@@ -73,8 +74,8 @@ Không bắt đầu sửa service trước khi hiểu:
 
 Chưa hoàn thiện hoặc mới là placeholder:
 
-- Bank transfer mới tạo payment record; chưa có provider adapter hoặc webhook có chữ ký.
-- Refund status đã có trong enum nhưng code không cho chuyển sang refund cho tới khi có model refund transaction riêng.
+- Signed webhook hiện dùng contract provider-neutral; adapter map payload riêng của SePay/VNPay/MoMo và reconciliation job vẫn chưa có.
+- Refund đã có API/admin transaction và provider callback, nhưng chưa có admin/customer UI.
 - Chưa có API/UI quản trị coupon campaign.
 - Redis và RabbitMQ đã có local infrastructure nhưng business flow hiện tại chưa publish/consume message.
 - Notification hiện là polling; chưa có notification inbox/event delivery.
@@ -172,6 +173,9 @@ Không thêm Redis/RabbitMQ vào một flow chỉ vì chúng tồn tại. Chỉ 
 | `RATE_LIMIT_MAX` | API | Số request tối đa mỗi IP/window | `300` |
 | `RATE_LIMIT_WINDOW_MS` | API | Độ dài rate-limit window | `60000` |
 | `TRUST_PROXY_HOPS` | API | Số reverse proxy đáng tin trước API | `0` |
+| `BANK_TRANSFER_PROVIDER` | API | Stable provider namespace dùng cho unique reference/event | `bank-transfer` |
+| `BANK_TRANSFER_WEBHOOK_SECRET` | API | HMAC-SHA256 secret xác thực raw webhook body | Bắt buộc để bật webhook |
+| `PAYMENT_WEBHOOK_TOLERANCE_SECONDS` | API | Cửa sổ chống replay theo timestamp | `300` giây, tối thiểu `30` |
 | `NEXT_PUBLIC_API_URL` | Web | Base URL browser gọi API | `http://localhost:3005/api` |
 
 Không dùng fallback secret trong production. Secret và database URL thật không được commit.
@@ -206,7 +210,7 @@ Entry point: `apps/api/src/main.ts`.
 
 Luồng khởi động:
 
-1. `NestFactory.create(AppModule)` tạo dependency graph.
+1. `NestFactory.create(AppModule, { rawBody: true })` tạo dependency graph và giữ đúng bytes webhook để verify HMAC.
 2. Lấy `ConfigService`.
 3. Gọi `configureApp(app)`.
 4. Listen tại `PORT`, mặc định `3005`.
@@ -457,7 +461,10 @@ User
         ├── ShopOrder (phần của shop B)
         │     └── OrderItem snapshots
         ├── Payment
-        │     └── PaymentStatusHistory
+        │     ├── PaymentStatusHistory
+        │     ├── Refund
+        │     │     └── RefundStatusHistory
+        │     └── PaymentWebhookEvent
         └── CouponUsage
 ```
 
@@ -467,6 +474,8 @@ Lý do tách:
 - Mỗi vendor chỉ fulfill ShopOrder của mình.
 - Shop A có thể cancel trong khi shop B vẫn delivered.
 - Payment status không bị trộn với fulfillment status.
+- Refund là transaction riêng; không sửa/xóa lịch sử Payment hoặc PaymentStatusHistory cũ.
+- Unique `(provider, providerRef)` và `(provider, eventId)` chặn cùng giao dịch/event provider được ghi cho hai payment.
 
 `OrderItem` lưu `productName`, `productImage`, `unitPrice`, `quantity`, `lineTotal`. Sau khi product đổi tên/giá/ảnh, order cũ vẫn giữ đúng lịch sử mua.
 
@@ -1248,19 +1257,99 @@ Transaction:
 6. Update ParentOrder.paymentStatus summary.
 7. Trả payment với history.
 
-### 19.3 Refund limitation
+### 19.3 Signed bank-transfer webhook
 
-Enum có `REFUND_PENDING`, `REFUNDED`, nhưng transition hiện bị khóa. Business rule yêu cầu refund là transaction/record riêng, không sửa ngược lịch sử payment gốc.
+Endpoint public cho provider: `POST /payments/webhooks/bank-transfer`.
 
-Khi triển khai refund phải bổ sung:
+Headers bắt buộc:
 
-- Refund model/amount/provider reference/status.
-- Rule không refund vượt paid amount.
-- Idempotency cho provider webhook/refund request.
-- Payment/Refund audit.
-- Test partial/full refund và concurrent retry.
+- `x-webhook-timestamp`: Unix seconds.
+- `x-webhook-signature`: `sha256=<hex>`.
 
-Không đơn giản mở `PAID -> REFUNDED` trong transition map.
+Chữ ký được tính trên đúng raw bytes:
+
+```text
+HMAC_SHA256(BANK_TRANSFER_WEBHOOK_SECRET, timestamp + "." + rawBody)
+```
+
+DTO body:
+
+- `eventId`: ID event ổn định phía provider.
+- `type`: `PAYMENT_SUCCEEDED`, `PAYMENT_FAILED`, `REFUND_SUCCEEDED`, `REFUND_FAILED`.
+- `paymentId`: UUID nội bộ đã gửi trong provider metadata/reference.
+- `refundId`: bắt buộc chỉ với refund event.
+- `providerReference`: transaction ID phía provider.
+- `amount`: decimal string tối đa hai chữ số thập phân.
+- `failureReason`: optional cho failed event.
+
+Luồng request:
+
+1. Global body parser giữ `request.rawBody`; DTO vẫn validate JSON bình thường.
+2. Controller chuyển signature, timestamp, raw body và DTO sang `PaymentsService`.
+3. Service yêu cầu secret đã cấu hình, timestamp nằm trong tolerance và HMAC đúng bằng comparison constant-time.
+4. Hash SHA-256 raw payload được lưu; raw payload tài chính không được log/trả về.
+5. Serializable transaction load Payment/Refund và claim unique `(provider,eventId)`.
+6. Validate method là `BANK_TRANSFER`, amount khớp chính xác bằng `Prisma.Decimal`, refund thuộc payment.
+7. Conditional update state, tạo status history và đồng bộ `ParentOrder.paymentStatus`.
+8. Retry event cùng ID + cùng payload trả `duplicate: true`; cùng ID + payload khác trả `409`.
+
+Payment success từ `UNPAID` được audit thành hai transition logic trong cùng transaction:
+
+```text
+UNPAID -> AUTHORIZED -> PAID
+```
+
+Không có cửa sổ quan sát được ở trạng thái AUTHORIZED vì toàn bộ callback commit atomically, nhưng history vẫn phản ánh state machine business. Provider reference unique ngăn một bank transaction thanh toán hai payment.
+
+Webhook không dùng JWT vì provider không có user session. HMAC, timestamp window, unique event ID, unique provider reference và amount matching cùng tạo lớp xác thực/replay/idempotency.
+
+### 19.4 Tạo refund transaction
+
+Endpoint admin: `POST /payments/:paymentId/refunds`.
+
+Input:
+
+```json
+{
+  "amount": "150000.00",
+  "idempotencyKey": "refund-order-123-v1",
+  "reason": "Customer return accepted"
+}
+```
+
+Chỉ ADMIN đi qua JWT + RolesGuard. Service hiện hỗ trợ provider-backed refund cho `BANK_TRANSFER`; COD cần quy trình hoàn tiền/đối soát riêng trước khi mở.
+
+Serializable transaction:
+
+1. Query unique `(paymentId,idempotencyKey)` trước; cùng key/cùng amount/reason trả lại Refund cũ, payload khác trả `409`.
+2. Payment phải `PAID` hoặc `PARTIALLY_REFUNDED`.
+3. Sum mọi Refund `SUCCEEDED` bằng Decimal.
+4. `requested amount <= payment.amount - succeeded refund total`.
+5. Conditional Payment transition sang `REFUND_PENDING`; vì vậy chỉ có một provider refund đang chờ cho một Payment.
+6. Tạo Refund `PENDING`, initial RefundStatusHistory và PaymentStatusHistory trong cùng transaction.
+7. Đồng bộ ParentOrder summary.
+
+Hai request refund cạnh tranh dùng Serializable isolation + compare-and-swap + retry. Chỉ một request claim được Payment; request còn lại reload state và bị reject. Unique idempotency vẫn bảo đảm concurrent retry cùng request không tạo hai Refund.
+
+### 19.5 Provider hoàn tất refund
+
+Provider callback dùng `REFUND_SUCCEEDED` hoặc `REFUND_FAILED` và phải chứa đúng `paymentId`, `refundId`, `amount`.
+
+Success:
+
+- Refund `PENDING -> SUCCEEDED`, set `providerRef`, `refundedAt`.
+- Sum successful refunds sau update.
+- Nếu sum bằng payment amount: Payment `REFUND_PENDING -> REFUNDED`.
+- Nếu sum nhỏ hơn: Payment `REFUND_PENDING -> PARTIALLY_REFUNDED`.
+
+Failure:
+
+- Refund `PENDING -> FAILED`, lưu `failureReason`.
+- Payment trở lại `PAID` nếu chưa refund thành công lần nào, hoặc `PARTIALLY_REFUNDED` nếu đã có partial refund trước đó.
+
+Mọi nhánh đều append RefundStatusHistory + PaymentStatusHistory; không rewrite/delete historical rows. Transaction rollback toàn bộ nếu amount lệch, reference trùng, state concurrent hoặc tổng successful refund vượt payment amount.
+
+Endpoint `GET /payments/:paymentId/refunds` cho ADMIN đọc refund mới nhất trước cùng toàn bộ history. Admin/customer UI và provider-specific request-out adapter vẫn là deferred work.
 
 ---
 
@@ -1525,6 +1614,9 @@ Mọi path dưới đây có prefix `/api`.
 | GET | `/shops/:shopId/orders` | Vendor owner | Shop fulfillment queue |
 | PATCH | `/shop-orders/:id/status` | Vendor owner | Fulfillment transition |
 | PATCH | `/payments/:id/status` | Admin | Payment transition/audit |
+| POST | `/payments/:id/refunds` | Admin | Idempotent partial/full refund request |
+| GET | `/payments/:id/refunds` | Admin | Refunds + append-only histories |
+| POST | `/payments/webhooks/bank-transfer` | Signed provider | Payment/refund settlement callback |
 | GET | `/products/:productId/reviews` | Public | Reviews + average rating |
 | GET | `/reviews/me` | Customer/Vendor | Own reviews |
 | POST | `/reviews` | Customer/Vendor buyer | Review delivered OrderItem |
@@ -1578,6 +1670,7 @@ Không sửa migration cũ đã được chia sẻ/applied. Tạo migration mớ
 - Initial domain schema.
 - Refresh sessions.
 - Phase 3 checkout fingerprints, per-user idempotency và payment history.
+- Phase 5 financial reliability: partial-refund status, refunds/history, webhook event audit và provider reference uniqueness.
 
 ### 25.3 Seed
 
@@ -1619,6 +1712,7 @@ Kết nối PostgreSQL thật:
 - Catalog ownership/archive/category cycle.
 - Inventory concurrent reserve.
 - Phase 3 checkout/order/payment.
+- Payment signed webhook và partial/full/concurrent refund.
 - Review buyer/delivery/duplicate/ownership rules.
 - Rate limiter response shape và threshold.
 
@@ -1653,6 +1747,8 @@ Test integration phải cleanup dữ liệu theo đúng dependency order: order 
 7. Parent order COMPLETED.
 8. Customer tạo review; public aggregate cập nhật.
 9. Request ID/security header/404 error shape được kiểm tra.
+
+`payments.e2e-spec.ts` bootstrap app với raw-body support và xác minh unsigned/stale callbacks bị `401`, exact HMAC callback được xử lý, request ID được giữ và replay không tạo event thứ hai.
 
 ### 26.4 Lệnh verification
 
@@ -1775,20 +1871,20 @@ Không dùng `db push` để né migration trong workflow có migration history.
 
 ## 28. Hướng dẫn thêm một backend feature
 
-Ví dụ thêm Refund transaction trong tương lai:
+Ví dụ nối một provider bank-transfer thật vào contract hiện tại:
 
-1. Đọc business rule và handbook phần payment/refund limitation.
-2. Xác định owner bounded context: `payments` hoặc subdomain `refunds`.
-3. Thiết kế Refund model, migration, endpoint và DTO.
-4. Xác định authorization: admin/provider webhook; customer không tự mark refunded.
-5. Xác định financial invariants:
-   - Payment phải PAID.
-   - Tổng refund không vượt paid amount.
-   - Provider reference/idempotency unique.
-   - Refund history không sửa/xóa payment history.
-6. Thiết kế signed webhook/replay protection nếu có provider.
-7. Viết transaction và explicit transitions.
-8. Viết unit/integration/concurrency tests.
+1. Đọc business rule và handbook phần webhook/refund.
+2. Giữ `PaymentsService` là owner state machine; adapter chỉ map/xác minh contract riêng của provider.
+3. Xác định provider cung cấp raw signature, timestamp, event ID, transaction reference và internal payment metadata như thế nào.
+4. Không parse nội dung chuyển khoản mơ hồ để mark paid nếu chưa có mapping deterministic tới `paymentId`.
+5. Giữ các financial invariants:
+   - Amount callback khớp Payment/Refund bằng Decimal.
+   - Provider reference/event ID unique trong namespace provider.
+   - Refund tổng không vượt paid amount.
+   - History và event audit append-only.
+6. Nếu provider không có timestamp/event ID, adapter phải tạo replay strategy tương đương và có ADR riêng.
+7. Thêm reconciliation job gọi provider API cho event timeout/mismatch; không dùng job để bypass signature validation.
+8. Viết contract fixture, integration, replay, concurrency và failure tests.
 9. Nối admin/customer UI với loading/error/empty state.
 10. Cập nhật tài liệu:
     - `project_context.md`.

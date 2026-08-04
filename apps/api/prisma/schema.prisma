@@ -67,7 +67,21 @@ enum PaymentStatus {
   PAID
   FAILED
   REFUND_PENDING
+  PARTIALLY_REFUNDED
   REFUNDED
+}
+
+enum RefundStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+}
+
+enum PaymentWebhookType {
+  PAYMENT_SUCCEEDED
+  PAYMENT_FAILED
+  REFUND_SUCCEEDED
+  REFUND_FAILED
 }
 
 enum CouponScope {
@@ -91,13 +105,14 @@ model User {
   createdAt    DateTime      @default(now()) @map("created_at")
   updatedAt    DateTime      @updatedAt @map("updated_at")
 
-  addresses       UserAddress[]
-  shops           Shop[]
-  carts           Cart[]
-  orders          ParentOrder[]
-  reviews         Review[]
-  couponUsages    CouponUsage[]
-  refreshSessions RefreshSession[]
+  addresses        UserAddress[]
+  shops            Shop[]
+  carts            Cart[]
+  orders           ParentOrder[]
+  reviews          Review[]
+  couponUsages     CouponUsage[]
+  refreshSessions  RefreshSession[]
+  requestedRefunds Refund[]         @relation("RefundRequestedBy")
 
   @@map("users")
 }
@@ -346,9 +361,11 @@ model Payment {
 
   parentOrder   ParentOrder            @relation(fields: [parentOrderId], references: [id], onDelete: Cascade)
   statusHistory PaymentStatusHistory[]
+  refunds       Refund[]
+  webhookEvents PaymentWebhookEvent[]
 
+  @@unique([provider, providerRef])
   @@index([parentOrderId])
-  @@index([providerRef])
   @@map("payments")
 }
 
@@ -365,6 +382,67 @@ model PaymentStatusHistory {
 
   @@index([paymentId, createdAt])
   @@map("payment_status_history")
+}
+
+model Refund {
+  id             String       @id @default(uuid()) @db.Uuid
+  paymentId      String       @map("payment_id") @db.Uuid
+  requestedById  String       @map("requested_by_id") @db.Uuid
+  idempotencyKey String       @map("idempotency_key")
+  amount         Decimal      @db.Decimal(12, 2)
+  status         RefundStatus @default(PENDING)
+  reason         String?      @db.Text
+  provider       String?
+  providerRef    String?      @map("provider_ref")
+  failureReason  String?      @map("failure_reason") @db.Text
+  refundedAt     DateTime?    @map("refunded_at")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  payment       Payment               @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  requestedBy   User                  @relation("RefundRequestedBy", fields: [requestedById], references: [id])
+  statusHistory RefundStatusHistory[]
+  webhookEvents PaymentWebhookEvent[]
+
+  @@unique([paymentId, idempotencyKey])
+  @@unique([provider, providerRef])
+  @@index([paymentId, createdAt])
+  @@map("refunds")
+}
+
+model RefundStatusHistory {
+  id         String        @id @default(uuid()) @db.Uuid
+  refundId   String        @map("refund_id") @db.Uuid
+  fromStatus RefundStatus? @map("from_status")
+  toStatus   RefundStatus  @map("to_status")
+  actorId    String?       @map("actor_id") @db.Uuid
+  note       String?
+  createdAt  DateTime      @default(now()) @map("created_at")
+
+  refund Refund @relation(fields: [refundId], references: [id], onDelete: Cascade)
+
+  @@index([refundId, createdAt])
+  @@map("refund_status_history")
+}
+
+model PaymentWebhookEvent {
+  id          String             @id @default(uuid()) @db.Uuid
+  provider    String
+  eventId     String             @map("event_id")
+  type        PaymentWebhookType
+  payloadHash String             @map("payload_hash") @db.Char(64)
+  paymentId   String             @map("payment_id") @db.Uuid
+  refundId    String?            @map("refund_id") @db.Uuid
+  processedAt DateTime           @default(now()) @map("processed_at")
+  createdAt   DateTime           @default(now()) @map("created_at")
+
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  refund  Refund? @relation(fields: [refundId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, eventId])
+  @@index([paymentId, createdAt])
+  @@index([refundId])
+  @@map("payment_webhook_events")
 }
 
 model Coupon {

@@ -135,7 +135,7 @@ Implementation order:
 4. Order status transition service.
 5. Payment module:
    - COD
-   - bank transfer placeholder
+   - bank transfer payment record; signed provider settlement is completed in Phase 5A
    - payment records
    - payment state transitions
 6. Vendor order dashboard API/UI.
@@ -195,6 +195,40 @@ Acceptance:
 - Seed data supports local demo.
 - Core domain tests pass.
 - Runbook is clear enough for a new developer/agent.
+
+## Phase 5 - Post-Roadmap Reliability & Operations
+
+Status: in progress.
+
+Phase 5A financial reliability completed:
+
+- Added `PARTIALLY_REFUNDED` payment summary and explicit Refund/RefundStatusHistory records.
+- Added PaymentWebhookEvent audit with unique provider event identity and payload hash.
+- Added reviewed migration `20260804150000_phase5_financial_reliability`.
+- Added HMAC-SHA256 bank-transfer webhook over exact raw request bytes.
+- Added timestamp tolerance, constant-time signature comparison, replay detection and same-event/different-payload rejection.
+- Added payment amount matching and provider-reference uniqueness before settlement.
+- Added idempotent admin refund creation with remaining-refundable validation.
+- Added Serializable transaction, compare-and-swap and retry protection for competing refunds.
+- Added partial/full/failed refund state aggregation without rewriting payment history.
+- Added PostgreSQL integration and HTTP e2e coverage for signature, replay, audit and concurrent refunds.
+
+Next implementation order:
+
+1. Coupon campaign admin API/UI and per-customer campaign limits.
+2. Redis-backed distributed rate limiter with fail-open/fail-closed policy and multi-instance tests.
+3. Refresh-session cleanup job plus frontend CSP/token-storage hardening.
+4. Provider-specific bank-transfer adapter and reconciliation job.
+5. Persisted notifications/outbox and operational UI.
+6. Staging deployment, backup/restore/load/rollback drills and provider-specific CD.
+
+Phase 5A acceptance:
+
+- Unsigned, stale or tampered webhook cannot mutate payment data.
+- Exact provider event retry is idempotent.
+- A provider transaction reference cannot settle two payments/refunds in the same namespace.
+- Concurrent refund requests cannot make successful refunds exceed paid amount.
+- Partial and full refund outcomes remain auditable through append-only histories.
 
 ## Backlog
 
