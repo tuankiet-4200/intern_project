@@ -149,7 +149,21 @@ Acceptance:
 
 ## Phase 4 - Production Readiness & UX Completion
 
-Status: not started.
+Status: complete.
+
+Done:
+
+- Implemented Review APIs with delivered-order eligibility, buyer ownership, one-review-per-order-item enforcement, public rating aggregates, owner updates, and PostgreSQL integration tests.
+- Connected delivered-item review forms and existing review state to the customer order UI.
+- Added 15-second silent polling with last-updated state to customer and vendor order dashboards.
+- Expanded the idempotent demo seed with a customer default address and `WELCOME10` global coupon.
+- Added global request IDs, security headers, structured errors, safe HTTP timing logs, and configurable per-IP rate limiting.
+- Added liveness and PostgreSQL readiness endpoints.
+- Fixed API production compilation to always emit the complete runtime tree and exclude e2e specs from `dist`.
+- Added a complete HTTP e2e journey covering registration, shop approval, product activation, cart, checkout, fulfillment, and review.
+- Added GitHub Actions CI with PostgreSQL migrations, lint, unit/integration tests, e2e tests, and production builds.
+- Added a production runbook covering configuration, migration/deployment order, health/smoke checks, observability, backup, rollback, security, and incident response.
+- Updated the codebase handbook with all Phase 4 flows, invariants, failure cases, tests, and operational limitations.
 
 Implementation order:
 

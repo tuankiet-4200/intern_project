@@ -2,6 +2,8 @@
 
 Tai lieu giai thich kien truc va tung luong code cho developer moi: [`codebase-handbook.md`](./codebase-handbook.md).
 
+Runbook production, migration, smoke test va incident response: [`production-runbook.md`](./production-runbook.md).
+
 ## Yeu cau
 
 - Node.js 20+

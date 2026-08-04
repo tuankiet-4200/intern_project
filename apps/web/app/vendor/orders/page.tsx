@@ -26,25 +26,31 @@ export default function VendorOrdersPage() {
   const [orders, setOrders] = useState<ShopOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     setError('');
     try {
       const shops = await apiRequest<Shop[]>('/shops/me', {}, true);
       const activeShop = shops[0] ?? null;
       setShop(activeShop);
       setOrders(activeShop ? await apiRequest<ShopOrder[]>(`/shops/${activeShop.id}/orders`, {}, true) : []);
+      setLastUpdated(new Date());
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Unable to load shop orders');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => void load(), 0);
-    return () => window.clearTimeout(timer);
+    const initialTimer = window.setTimeout(() => void load(), 0);
+    const pollingTimer = window.setInterval(() => void load(true), 15_000);
+    return () => {
+      window.clearTimeout(initialTimer);
+      window.clearInterval(pollingTimer);
+    };
   }, [load]);
 
   async function transition(order: ShopOrder, status: ShopOrderStatus) {
@@ -54,7 +60,7 @@ export default function VendorOrdersPage() {
         method: 'PATCH',
         body: JSON.stringify({ status }),
       }, true);
-      await load();
+      await load(true);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Unable to update order');
     }
@@ -63,8 +69,11 @@ export default function VendorOrdersPage() {
   return (
     <AppShell>
       <div className="flex items-end justify-between gap-3">
-        <div><h1 className="text-2xl font-semibold">Shop orders</h1><p className="text-sm text-[var(--muted)]">{shop ? `${shop.name} · ${shop.status}` : 'No shop selected'}</p></div>
-        <button className="rounded border border-[var(--line)] px-3 py-2 text-sm" onClick={() => void load()}>Refresh</button>
+        <div><h1 className="text-2xl font-semibold">Shop orders</h1><p className="text-sm text-[var(--muted)]">{shop ? `${shop.name} · ${shop.status}` : 'No shop selected'} · auto-refresh every 15 seconds</p></div>
+        <div className="text-right">
+          <button className="rounded border border-[var(--line)] px-3 py-2 text-sm" onClick={() => void load()}>Refresh</button>
+          {lastUpdated ? <p className="mt-1 text-xs text-[var(--muted)]">Updated {lastUpdated.toLocaleTimeString('vi-VN')}</p> : null}
+        </div>
       </div>
       {loading ? <p className="mt-4 rounded-md border border-[var(--line)] bg-white p-4">Loading shop orders…</p> : null}
       {error ? <p className="mt-4 rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}

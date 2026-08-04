@@ -1,4 +1,6 @@
 import {
+  CouponScope,
+  CouponType,
   InventoryReason,
   PrismaClient,
   ProductStatus,
@@ -35,6 +37,35 @@ async function main() {
       slug: 'north-studio',
       description: 'Approved demo shop',
       status: ShopStatus.APPROVED,
+    },
+  });
+
+  const addressCount = await prisma.userAddress.count({ where: { userId: customer.id } });
+  if (addressCount === 0) {
+    await prisma.userAddress.create({
+      data: {
+        userId: customer.id,
+        recipient: customer.fullName,
+        phone: '0900000000',
+        line1: '1 Demo Street',
+        ward: 'Demo Ward',
+        district: 'Demo District',
+        city: 'Ho Chi Minh City',
+        isDefault: true,
+      },
+    });
+  }
+
+  await prisma.coupon.upsert({
+    where: { code: 'WELCOME10' },
+    update: { isActive: true, value: 10, maxDiscount: 100000 },
+    create: {
+      code: 'WELCOME10',
+      scope: CouponScope.GLOBAL,
+      type: CouponType.PERCENTAGE,
+      value: 10,
+      maxDiscount: 100000,
+      isActive: true,
     },
   });
 

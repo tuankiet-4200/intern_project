@@ -65,16 +65,21 @@ Không bắt đầu sửa service trước khi hiểu:
 - Customer order history/cancel.
 - Vendor fulfillment.
 - Payment record, payment state transition và audit history.
+- Review sau khi giao hàng, public review aggregate và customer review UI.
+- Polling order status 15 giây cho customer/vendor.
+- Request ID, security headers, structured errors, HTTP timing logs và rate limiting baseline.
+- Database readiness endpoint, full commerce e2e, CI workflow và production runbook.
 - Customer/vendor/admin UI tương ứng.
 
 Chưa hoàn thiện hoặc mới là placeholder:
 
-- `ReviewsModule` đã có module shell và schema nhưng chưa có controller/service/UI.
 - Bank transfer mới tạo payment record; chưa có provider adapter hoặc webhook có chữ ký.
 - Refund status đã có trong enum nhưng code không cho chuyển sang refund cho tới khi có model refund transaction riêng.
 - Chưa có API/UI quản trị coupon campaign.
 - Redis và RabbitMQ đã có local infrastructure nhưng business flow hiện tại chưa publish/consume message.
-- Chưa có notification, rate limiting, structured logging, request ID, CI/CD production hoàn chỉnh.
+- Notification hiện là polling; chưa có notification inbox/event delivery.
+- Rate limiter hiện dùng memory của một API process; cần gateway/Redis trước khi chạy nhiều replica.
+- CI đã verify code nhưng chưa có CD tự động tới một hosting provider cụ thể.
 
 Không được mô tả các mục “chưa hoàn thiện” như tính năng production-ready.
 
@@ -121,7 +126,7 @@ Backend là một process NestJS nhưng chia theo bounded context:
 - `checkout`: pricing và tạo đơn nguyên tử.
 - `orders`: fulfillment.
 - `payments`: payment state.
-- `reviews`: placeholder cho Phase 4.
+- `reviews`: review eligibility, ownership và public aggregate.
 
 “Modular monolith” nghĩa là deploy chung nhưng boundary logic vẫn rõ. Không được query/chỉnh dữ liệu domain khác tùy tiện nếu có thể gọi service sở hữu domain đó. Ví dụ `CatalogService` dùng `ShopsService.assertOwner()` để kiểm tra shop ownership.
 
@@ -164,6 +169,9 @@ Không thêm Redis/RabbitMQ vào một flow chỉ vì chúng tồn tại. Chỉ 
 | `FRONTEND_URL` | API | CORS allowed origin | `http://localhost:3000` |
 | `PORT` | API | API listen port | `3005` |
 | `SHIPPING_FEE_PER_SHOP` | API | Phí ship fixed cho mỗi shop khi quote | `30000` |
+| `RATE_LIMIT_MAX` | API | Số request tối đa mỗi IP/window | `300` |
+| `RATE_LIMIT_WINDOW_MS` | API | Độ dài rate-limit window | `60000` |
+| `TRUST_PROXY_HOPS` | API | Số reverse proxy đáng tin trước API | `0` |
 | `NEXT_PUBLIC_API_URL` | Web | Base URL browser gọi API | `http://localhost:3005/api` |
 
 Không dùng fallback secret trong production. Secret và database URL thật không được commit.
@@ -210,10 +218,15 @@ Luồng khởi động:
 `configure-app.ts` thiết lập:
 
 - Prefix `/api` cho mọi route.
+- Trusted proxy hops khi `TRUST_PROXY_HOPS > 0` để Express xác định client IP đúng.
+- Request-context middleware sinh/validate `x-request-id` và thêm security headers.
+- Fixed-window rate limiter theo IP.
 - `cookie-parser` để đọc refresh cookie.
 - CORS chỉ cho `FRONTEND_URL`, mặc định `http://localhost:3000`.
 - `credentials: true` để browser gửi HttpOnly cookie cross-origin giữa hai local port.
 - Global `ValidationPipe`.
+- Global request logging middleware.
+- Global structured exception filter.
 
 ValidationPipe có ba option quan trọng:
 
@@ -268,6 +281,59 @@ await prisma.$transaction(async (tx) => {
   await tx.inventory.update(...);
 });
 ```
+
+### 4.5 Global hardening pipeline
+
+Thứ tự quan trọng:
+
+```text
+HTTP request
+  -> requestContextMiddleware
+  -> requestLoggingMiddleware
+  -> RateLimitMiddleware
+  -> cookieParser/CORS
+  -> Nest guards + ValidationPipe
+  -> controller/service
+  -> StructuredExceptionFilter nếu lỗi
+```
+
+Request context:
+
+- Chấp nhận `x-request-id` từ upstream chỉ khi khớp `[A-Za-z0-9._-]` và dài tối đa 100.
+- Nếu không hợp lệ, sinh UUID.
+- Trả lại request ID trong response header.
+- Thêm `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`.
+
+Rate limiting:
+
+- Bucket theo client IP.
+- Default 300 request/60 giây.
+- Bỏ qua OPTIONS và liveness health.
+- Trả remaining/reset headers.
+- Khi vượt limit, trả structured `429 TOO_MANY_REQUESTS` và `Retry-After`.
+- Bucket hiện nằm trong memory; không bảo vệ quota toàn cluster nhiều replica.
+
+Structured error shape:
+
+```json
+{
+  "statusCode": 400,
+  "code": "BAD_REQUEST",
+  "message": "Actionable message",
+  "requestId": "uuid",
+  "timestamp": "ISO-8601",
+  "path": "/api/resource"
+}
+```
+
+Business exception có thể thêm `details`, ví dụ danh sách cart item lỗi. Unknown exception trả message generic cho client nhưng server log giữ stack kèm request ID.
+
+Request logger dùng response `finish` event nên bao phủ cả matched routes, 404 chưa match và 429 từ middleware. Log gồm method, path, status, duration, user ID và role; không ghi body, password, cookie hoặc Authorization header. Express framework fingerprint `X-Powered-By` bị tắt.
+
+Health endpoints:
+
+- `GET /health`: liveness của HTTP process, không phụ thuộc DB.
+- `GET /health/ready`: chạy `SELECT 1`, chỉ ready khi PostgreSQL truy cập được.
 
 ---
 
@@ -1198,9 +1264,71 @@ Không đơn giản mở `PAID -> REFUNDED` trong transition map.
 
 ---
 
-## 20. Frontend API/session flow
+## 20. Review flow
 
-### 20.1 `apiRequest`
+Review gắn với `OrderItem`, không chỉ với Product. Điều này chứng minh review đến từ một lần mua cụ thể và cho phép một customer review cùng product ở hai lần mua khác nhau nếu business giữ quy tắc hiện tại.
+
+### 20.1 Eligibility và ownership
+
+Endpoint tạo: `POST /reviews`, role CUSTOMER hoặc VENDOR đã đăng nhập.
+
+Input:
+
+- `orderItemId`: UUID.
+- `rating`: integer 1-5.
+- `comment`: optional, tối đa 1000 ký tự.
+
+Transaction tạo review:
+
+1. Query OrderItem theo ID.
+2. Join `shopOrder.parentOrder.userId` và yêu cầu bằng current user.
+3. Nếu không thuộc user, trả 404 để không lộ order item người khác.
+4. ShopOrder phải `DELIVERED`; trạng thái khác trả 400.
+5. Kiểm tra unique `(userId, orderItemId)`.
+6. Trim comment; chuỗi rỗng được lưu null.
+7. Tạo Review với productId lấy từ OrderItem, không nhận productId từ client.
+
+Không nhận `productId` từ request vì client có thể ghép OrderItem đã mua với Product khác. Server-derived product ID bảo vệ tính toàn vẹn.
+
+Unique constraint là lớp bảo vệ cuối khi hai request review chạy đồng thời. Prisma P2002 được map thành 409 duplicate; serializable P2034 được map thành 409 retry.
+
+### 20.2 List và update
+
+- `GET /products/:productId/reviews`: public, pagination tối đa 50; trả reviews với reviewer full name, total và average rating.
+- `GET /reviews/me`: protected; trả review của current user kèm product summary.
+- `PATCH /reviews/:reviewId`: chỉ owner review được sửa rating/comment.
+
+Public response không trả email hoặc user security fields.
+
+### 20.3 Frontend review flow
+
+Trang `/orders` load song song orders và `/reviews/me`, sau đó map review theo `orderItemId`.
+
+- ShopOrder chưa delivered: không hiện nút review.
+- Delivered và chưa review: hiện form rating/comment.
+- Đã review: hiện rating/comment đã lưu.
+- Backend vẫn revalidate eligibility; UI condition chỉ phục vụ UX.
+
+Sau submit, page reload orders/reviews từ server. Integration test kiểm tra buyer-only, delivered-only, duplicate và update ownership; full commerce e2e kiểm tra review qua HTTP sau vendor delivery.
+
+### 20.4 Polling notification baseline
+
+Customer `/orders` và vendor `/vendor/orders` tự poll mỗi 15 giây:
+
+1. Initial load bật loading state.
+2. `setInterval` gọi silent load.
+3. Silent load không làm màn hình nhấp nháy loading.
+4. Server response thay thế state hiện tại.
+5. UI hiển thị thời điểm update gần nhất.
+6. Unmount sẽ clear timeout/interval.
+
+Polling là lựa chọn Phase 4 vì đơn giản, dễ retry và chưa cần connection state như WebSocket. Khi traffic tăng, cần cache/ETag hoặc notification event để tránh mọi client query toàn bộ order list liên tục.
+
+---
+
+## 21. Frontend API/session flow
+
+### 21.1 `apiRequest`
 
 Mọi page nên gọi `apiRequest<T>()` thay vì fetch trực tiếp, trừ refresh implementation bên trong helper.
 
@@ -1216,7 +1344,7 @@ Helper làm:
 
 Nếu endpoint protected nhưng quên truyền argument thứ ba `true`, request sẽ thiếu Bearer token.
 
-### 20.2 Session storage
+### 21.2 Session storage
 
 Local storage key: `intern-commerce-session`.
 
@@ -1227,7 +1355,7 @@ Lưu:
 
 Không lưu refresh token; nó thuộc HttpOnly cookie và JavaScript không đọc được.
 
-### 20.3 Page pattern
+### 21.3 Page pattern
 
 Các page data-driven thường dùng:
 
@@ -1241,9 +1369,9 @@ Mọi page phải có loading, error và empty state phù hợp.
 
 ---
 
-## 21. Luồng từng màn hình frontend
+## 22. Luồng từng màn hình frontend
 
-### 21.1 `/login`
+### 22.1 `/login`
 
 - Gọi `/auth/login`.
 - Lưu session.
@@ -1252,13 +1380,13 @@ Mọi page phải có loading, error và empty state phù hợp.
   - VENDOR -> `/vendor/products`.
   - CUSTOMER -> `/`.
 
-### 21.2 `/register`
+### 22.2 `/register`
 
 - Gọi `/auth/register` không gửi role.
 - Lưu customer session.
 - Redirect `/vendor/shop` để user có thể request shop.
 
-### 21.3 `/profile`
+### 22.3 `/profile`
 
 - Load song song profile và addresses.
 - Update profile.
@@ -1266,14 +1394,14 @@ Mọi page phải có loading, error và empty state phù hợp.
 - Set default address.
 - Logout: gọi backend revoke cookie session, sau đó luôn clear local session.
 
-### 21.4 `/`
+### 22.4 `/`
 
 - Public load `/products`.
 - Tính available để display.
 - Add to cart gọi protected `/cart/items`.
 - Nếu chưa login, helper trả lỗi yêu cầu sign in.
 
-### 21.5 `/cart`
+### 22.5 `/cart`
 
 Load song song:
 
@@ -1295,20 +1423,22 @@ Checkout:
 5. Success -> `/orders?created=<id>`.
 6. Failure -> giữ key để retry cùng payload không duplicate.
 
-### 21.6 `/orders`
+### 22.6 `/orders`
 
-- Load customer ParentOrders.
+- Load song song customer ParentOrders và reviews của current user.
 - Render từng ShopOrder và OrderItem snapshot.
 - Hiển thị parent fulfillment + payment status.
 - Cho cancel khi parent còn PLACED; backend vẫn là nguồn quyết định cuối cùng.
+- Với delivered item chưa review, hiện form rating/comment; item đã review hiện kết quả.
+- Silent poll mỗi 15 giây và hiển thị last-updated time.
 
-### 21.7 `/vendor/shop`
+### 22.7 `/vendor/shop`
 
 - Load shop của current user.
 - Nếu chưa có, hiện form onboarding.
 - Nếu approved, có thể đi quản lý product.
 
-### 21.8 `/vendor/products`
+### 22.8 `/vendor/products`
 
 - Load `/shops/me` và categories.
 - Chọn shop đầu tiên hiện tại.
@@ -1320,20 +1450,21 @@ Checkout:
 
 Backend ownership/status rules vẫn bắt buộc; disabled button trên UI không phải security control.
 
-### 21.9 `/vendor/orders`
+### 22.9 `/vendor/orders`
 
 - Load shop hiện tại, sau đó load shop orders.
 - Map current status sang next status hợp lệ.
 - Cho cancel ở pending/confirmed.
 - Reload list sau transition.
+- Silent poll mỗi 15 giây để nhận order/status mới mà không flash loading state.
 
-### 21.10 `/admin/shops`
+### 22.10 `/admin/shops`
 
 - Load pending review queue.
 - Approve/reject.
 - Reload sau mutation.
 
-### 21.11 `/admin/categories`
+### 22.11 `/admin/categories`
 
 - Load flat admin list có parent/count dependencies.
 - Create root/child.
@@ -1342,13 +1473,14 @@ Backend ownership/status rules vẫn bắt buộc; disabled button trên UI khô
 
 ---
 
-## 22. API endpoint matrix
+## 23. API endpoint matrix
 
 Mọi path dưới đây có prefix `/api`.
 
 | Method | Path | Access | Chức năng |
 |---|---|---|---|
-| GET | `/health` | Public | Health response |
+| GET | `/health` | Public | Process liveness |
+| GET | `/health/ready` | Public | PostgreSQL readiness |
 | POST | `/auth/register` | Public | Tạo customer + session |
 | POST | `/auth/login` | Public | Login + session |
 | POST | `/auth/refresh` | Refresh cookie | Rotate refresh session |
@@ -1393,10 +1525,14 @@ Mọi path dưới đây có prefix `/api`.
 | GET | `/shops/:shopId/orders` | Vendor owner | Shop fulfillment queue |
 | PATCH | `/shop-orders/:id/status` | Vendor owner | Fulfillment transition |
 | PATCH | `/payments/:id/status` | Admin | Payment transition/audit |
+| GET | `/products/:productId/reviews` | Public | Reviews + average rating |
+| GET | `/reviews/me` | Customer/Vendor | Own reviews |
+| POST | `/reviews` | Customer/Vendor buyer | Review delivered OrderItem |
+| PATCH | `/reviews/:id` | Review owner | Update rating/comment |
 
 ---
 
-## 23. Error semantics
+## 24. Error semantics
 
 Service dùng Nest exceptions:
 
@@ -1416,11 +1552,13 @@ Ví dụ:
 
 Frontend `apiRequest` lấy `message` từ JSON và throw Error. Vì vậy message backend nên ngắn, actionable và không lộ internal details.
 
+Global exception filter chuẩn hóa mọi lỗi với `statusCode`, `code`, `message`, `requestId`, `timestamp`, `path`; business payload bổ sung nằm trong `details`. Unknown 500 không trả stack cho client. Dùng response `x-request-id` để correlate với server log.
+
 ---
 
-## 24. Database migrations và seed
+## 25. Database migrations và seed
 
-### 24.1 Schema vs migration
+### 25.1 Schema vs migration
 
 `schema.prisma` mô tả trạng thái mong muốn. `prisma/migrations/*/migration.sql` là lịch sử thay đổi database.
 
@@ -1435,13 +1573,13 @@ Khi sửa schema:
 
 Không sửa migration cũ đã được chia sẻ/applied. Tạo migration mới.
 
-### 24.2 Current migrations
+### 25.2 Current migrations
 
 - Initial domain schema.
 - Refresh sessions.
 - Phase 3 checkout fingerprints, per-user idempotency và payment history.
 
-### 24.3 Seed
+### 25.3 Seed
 
 Seed dùng upsert để chạy lặp lại an toàn cho:
 
@@ -1450,6 +1588,8 @@ Seed dùng upsert để chạy lặp lại an toàn cho:
 - categories.
 - active products.
 - inventory và initial ledger khi inventory mới.
+- customer default address nếu customer chưa có address.
+- global coupon `WELCOME10` (10%, cap 100.000 VND).
 
 Demo password hiện tại là `password123`, chỉ dùng local development.
 
@@ -1457,9 +1597,9 @@ Seed không nên reset stock/order production. Khi bổ sung seed, giữ idempot
 
 ---
 
-## 25. Testing map
+## 26. Testing map
 
-### 25.1 Unit/service tests
+### 26.1 Unit/service tests
 
 Dùng mocked Prisma/dependency để test rule nhanh:
 
@@ -1471,7 +1611,7 @@ Dùng mocked Prisma/dependency để test rule nhanh:
 
 Ưu điểm: nhanh, chỉ ra rule fail rõ. Nhược điểm: không chứng minh transaction/constraint thật.
 
-### 25.2 Integration tests
+### 26.2 Integration tests
 
 Kết nối PostgreSQL thật:
 
@@ -1479,6 +1619,8 @@ Kết nối PostgreSQL thật:
 - Catalog ownership/archive/category cycle.
 - Inventory concurrent reserve.
 - Phase 3 checkout/order/payment.
+- Review buyer/delivery/duplicate/ownership rules.
+- Rate limiter response shape và threshold.
 
 Phase 3 integration test xác minh:
 
@@ -1496,16 +1638,27 @@ Phase 3 integration test xác minh:
 
 Test integration phải cleanup dữ liệu theo đúng dependency order: order trước product, cart item trước product, rồi shop/category/user.
 
-### 25.3 E2E
+### 26.3 E2E
 
 `auth.e2e-spec.ts` bootstrap Nest app thật, kiểm tra request HTTP, cookie rotation, logout và RBAC.
 
-Phase 4 cần thêm full commerce e2e qua HTTP/UI.
+`commerce.e2e-spec.ts` đi trọn HTTP happy path:
 
-### 25.4 Lệnh verification
+1. Customer account gửi shop onboarding.
+2. Admin approve và user login lại với VENDOR role.
+3. Admin tạo category; vendor tạo/activate product.
+4. Customer register, tạo address, add cart, quote, checkout.
+5. Review trước delivery bị reject bằng structured error.
+6. Vendor fulfill qua mọi transition tới DELIVERED.
+7. Parent order COMPLETED.
+8. Customer tạo review; public aggregate cập nhật.
+9. Request ID/security header/404 error shape được kiểm tra.
+
+### 26.4 Lệnh verification
 
 ```bash
 npm test -w @intern-project/api -- --runInBand
+npm run test:e2e -w @intern-project/api
 npm run lint
 npm run build -w @intern-project/api
 npm run build -w @intern-project/web
@@ -1514,11 +1667,28 @@ npx prisma validate --schema apps/api/prisma/schema.prisma
 
 Integration tests cần PostgreSQL local đang chạy và migration mới nhất đã apply.
 
+### 26.5 CI và production handoff
+
+`.github/workflows/ci.yml` chạy trên pull request và push main với PostgreSQL 16 service:
+
+1. npm clean install.
+2. Prisma generate/migrate deploy.
+3. Lint.
+4. Unit/integration tests.
+5. Auth + commerce e2e.
+6. API/Web production builds.
+
+`docs/production-runbook.md` là deployment draft và on-call guide: environment/secrets, backup, migration order, API/Web rollout, liveness/readiness, smoke test, logging/request ID, alerts, rate-limit limitation, rollback và incident playbooks.
+
+CI là quality gate, chưa tự deploy tới provider cụ thể. Khi thêm CD phải giữ migration là release job chạy một lần và không để mọi API replica đồng thời chạy `migrate dev`.
+
+API `tsconfig.json` để `incremental=false` cho production compilation. Nest build xóa `dist`; nếu giữ stale incremental metadata bên ngoài `dist`, TypeScript có thể tưởng file cũ đã emit và chỉ tạo các file vừa đổi, dẫn tới artifact compile “pass” nhưng runtime thiếu module. E2e specs cũng được exclude khỏi `dist`. Runtime smoke phải khởi động `node dist/main`, không chỉ dừng ở `nest build`.
+
 ---
 
-## 26. Debug theo triệu chứng
+## 27. Debug theo triệu chứng
 
-### 26.1 API trả 400 ngay, controller không chạy
+### 27.1 API trả 400 ngay, controller không chạy
 
 Kiểm tra:
 
@@ -1527,7 +1697,7 @@ Kiểm tra:
 - Query number có `@Type(() => Number)` chưa.
 - Enum string có đúng exact value chưa.
 
-### 26.2 API trả 401
+### 27.2 API trả 401
 
 - Page có gọi `apiRequest(..., true)` không?
 - Local storage có session không?
@@ -1536,13 +1706,13 @@ Kiểm tra:
 - CORS origin/credentials đúng không?
 - User/session có active, unrevoked, unexpired không?
 
-### 26.3 API trả 403
+### 27.3 API trả 403
 
 - `@Roles` yêu cầu role gì?
 - JWT payload role có cũ sau khi admin approve shop không?
 - Resource ownership có đúng user ID không?
 
-### 26.4 Product không xuất hiện public
+### 27.4 Product không xuất hiện public
 
 Kiểm tra đủ ba điều kiện:
 
@@ -1552,7 +1722,7 @@ Kiểm tra đủ ba điều kiện:
 
 Sau đó kiểm tra category/search/page filter.
 
-### 26.5 Cart add được nhưng checkout fail
+### 27.5 Cart add được nhưng checkout fail
 
 Đây có thể là hành vi đúng vì checkout revalidate. Kiểm tra:
 
@@ -1562,11 +1732,11 @@ Sau đó kiểm tra category/search/page filter.
 - Coupon vừa hết hạn/hết lượt.
 - Address không thuộc user.
 
-### 26.6 Inventory conflict 409
+### 27.6 Inventory conflict 409
 
 Conditional update bị request khác thắng. Client có thể reload state và retry. Không đổi thành blind update để “hết lỗi”, vì sẽ phá concurrency protection.
 
-### 26.7 Duplicate checkout
+### 27.7 Duplicate checkout
 
 Kiểm tra:
 
@@ -1574,7 +1744,7 @@ Kiểm tra:
 - Unique `(userId,idempotencyKey)` còn trong schema/database không?
 - Fingerprint normalization có giống quote/commit UI không?
 
-### 26.8 Order total lệch
+### 27.8 Order total lệch
 
 Trace theo thứ tự:
 
@@ -1588,7 +1758,7 @@ Trace theo thứ tự:
 
 Giữ mọi bước bằng Prisma.Decimal.
 
-### 26.9 Migration/schema mismatch
+### 27.9 Migration/schema mismatch
 
 Chạy:
 
@@ -1603,23 +1773,23 @@ Không dùng `db push` để né migration trong workflow có migration history.
 
 ---
 
-## 27. Hướng dẫn thêm một backend feature
+## 28. Hướng dẫn thêm một backend feature
 
-Ví dụ thêm Review ở Phase 4:
+Ví dụ thêm Refund transaction trong tương lai:
 
-1. Đọc business rule và handbook phần order/review gap.
-2. Xác định owner bounded context: `reviews`.
-3. Thiết kế endpoint và DTO.
-4. Xác định authorization: customer authenticated.
-5. Xác định ownership/eligibility:
-   - OrderItem thuộc order của customer.
-   - ShopOrder đã DELIVERED.
-   - Product/order item khớp.
-   - Unique user/order item.
-6. Viết service, controller, module.
-7. Dùng transaction nếu update rating aggregate cùng lúc.
-8. Viết unit/integration tests.
-9. Nối UI với loading/error/empty state.
+1. Đọc business rule và handbook phần payment/refund limitation.
+2. Xác định owner bounded context: `payments` hoặc subdomain `refunds`.
+3. Thiết kế Refund model, migration, endpoint và DTO.
+4. Xác định authorization: admin/provider webhook; customer không tự mark refunded.
+5. Xác định financial invariants:
+   - Payment phải PAID.
+   - Tổng refund không vượt paid amount.
+   - Provider reference/idempotency unique.
+   - Refund history không sửa/xóa payment history.
+6. Thiết kế signed webhook/replay protection nếu có provider.
+7. Viết transaction và explicit transitions.
+8. Viết unit/integration/concurrency tests.
+9. Nối admin/customer UI với loading/error/empty state.
 10. Cập nhật tài liệu:
     - `project_context.md`.
     - `execution_plan.md` nếu phase status đổi.
@@ -1631,7 +1801,7 @@ Không coi feature hoàn thành nếu code có nhưng handbook vẫn ghi “plac
 
 ---
 
-## 28. Checklist review code dành cho fresher
+## 29. Checklist review code dành cho fresher
 
 ### Backend
 
@@ -1675,7 +1845,7 @@ Không coi feature hoàn thành nếu code có nhưng handbook vẫn ghi “plac
 
 ---
 
-## 29. Quy tắc cập nhật handbook sau này
+## 30. Quy tắc cập nhật handbook sau này
 
 Mỗi feature hoặc behavior change phải cập nhật đúng section trong file này. Nội dung tối thiểu cần bổ sung:
 
@@ -1697,7 +1867,7 @@ Nếu thay đổi tên endpoint, enum, schema, công thức hoặc flow, phải 
 
 ---
 
-## 30. Nguồn sự thật và thứ tự ưu tiên
+## 31. Nguồn sự thật và thứ tự ưu tiên
 
 Khi tài liệu mâu thuẫn:
 

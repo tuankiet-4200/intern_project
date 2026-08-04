@@ -113,6 +113,23 @@ Phase 3 implementation:
 - Added migration `20260804090000_phase3_checkout_orders` for checkout fingerprints, per-user idempotency, and payment audit history.
 - Added Phase 3 PostgreSQL integration tests covering split checkout, snapshot values, coupons, idempotency, state transitions, payment audit, inventory release/sale, and concurrent checkout.
 
+Phase 4 implementation:
+
+- Implemented Review DTO/controller/service APIs for buyer-owned delivered OrderItems, one review per order item, public product review pagination/average, own-review listing, and owner updates.
+- Added PostgreSQL Review integration coverage for buyer ownership, delivered eligibility, duplicates, public aggregate, and update ownership.
+- Connected review submission and existing review state to delivered items on the customer order page.
+- Added silent 15-second polling and last-updated indicators to customer and vendor order pages.
+- Expanded the idempotent demo seed with a default customer address and global `WELCOME10` coupon; verified repeated seed execution.
+- Added request-context middleware with request IDs and baseline security headers.
+- Added configurable fixed-window per-IP rate limiting with structured 429 responses and response headers.
+- Added a global structured exception filter and safe HTTP request timing logs with request correlation.
+- Added PostgreSQL readiness at `/api/health/ready` while keeping `/api/health` as lightweight liveness.
+- Disabled incremental API production emission and excluded e2e specs so `nest build` always recreates the complete runtime tree after clearing `dist`.
+- Added full commerce HTTP e2e coverage from shop onboarding through checkout, fulfillment, and customer review, including hardened response assertions.
+- Added `.github/workflows/ci.yml` with PostgreSQL migration, lint, unit/integration tests, e2e tests, and API/Web production builds.
+- Added `docs/production-runbook.md` for environment, release, migration, smoke checks, observability, backup, rollback, security, and incident response.
+- Updated `docs/codebase-handbook.md` so every Phase 4 flow and operational limitation is explained for fresher developers.
+
 Governance/context:
 
 - Added `.agents/senior-tech-lead.rules.md`.
@@ -162,22 +179,32 @@ Verified:
 - API and web lint passed after Phase 3 implementation.
 - API production build passed.
 - Web production build passed with 15 routes, including customer cart/orders and vendor orders.
+- Review PostgreSQL integration test passed.
+- Demo seed ran successfully twice, confirming idempotent Phase 4 address/coupon support.
+- Full API unit/integration suite passed: 11 suites, 20 tests.
+- Auth and complete commerce e2e passed: 2 suites, 3 tests.
+- Root API/Web lint passed after Phase 4.
+- API and Web production builds passed after Phase 4.
+- Production API runtime smoke passed for liveness, PostgreSQL readiness, request/security headers, structured 404, complete artifact startup, and correlated 404 logging.
 
 ## Current Risks / Gaps
 
 - Bank transfer is currently a payment-record/manual-confirmation placeholder; signed provider webhook integration is still pending.
 - Refund statuses exist in the domain enum, but refund execution is intentionally blocked until an explicit refund transaction model is added so payment history is never silently rewritten.
 - Coupon evaluation is implemented at checkout, but coupon campaign management APIs/UI are not yet available.
+- The current per-IP rate limiter is process-local; move it to an API gateway or Redis before horizontal API scaling.
+- CI is implemented, but provider-specific CD and a real staging deployment/restore drill are still pending.
+- Polling provides order updates, but there is no persisted notification inbox or event delivery yet.
 - Refresh-session cleanup for expired/revoked rows should be added as a maintenance job before production.
 - Access tokens remain in local storage; refresh tokens are HttpOnly. Consider in-memory access tokens plus CSP hardening in Phase 4.
 - `npm audit --omit=dev` still reports high advisories through transitive Next.js/PostCSS/Sharp dependencies; npm does not currently offer a non-breaking automatic remediation for the installed release line.
 
 ## Next Recommended Step
 
-Phase 3 is complete. Move to Phase 4:
+The planned Phase 1-4 roadmap is complete. Recommended post-roadmap priorities:
 
-1. Add the review workflow after delivery.
-2. Cover the complete customer/vendor/admin happy path with e2e tests and demo seed support.
-3. Add request IDs, structured errors, rate limiting, and production logging.
-4. Add polling-based notifications where the order workflow needs them.
-5. Draft CI/CD, deployment, observability, and production runbooks.
+1. Integrate signed bank-transfer webhooks and an explicit refund transaction model.
+2. Add coupon campaign administration and per-customer campaign limits where required.
+3. Move rate limiting to Redis/API gateway and perform a multi-replica load test.
+4. Harden frontend token storage/CSP and add refresh-session cleanup.
+5. Deploy to staging, run backup/restore and rollback drills, then connect provider-specific CD.
