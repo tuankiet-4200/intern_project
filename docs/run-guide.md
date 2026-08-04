@@ -1,5 +1,7 @@
 # Huong Dan Chay Du An
 
+Tai lieu giai thich kien truc va tung luong code cho developer moi: [`codebase-handbook.md`](./codebase-handbook.md).
+
 ## Yeu cau
 
 - Node.js 20+

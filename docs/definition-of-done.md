@@ -11,6 +11,7 @@ A task is not done until all applicable items below are satisfied.
 - Relevant source files were read before modification.
 - Implementation is scoped to the requested feature or plan step.
 - `docs/project_context.md` is updated after the change.
+- Relevant `docs/codebase-handbook.md` sections explain the completed behavior and no stale flow description remains.
 - The final response states what was changed and what verification was run.
 
 ## Required For Backend Features

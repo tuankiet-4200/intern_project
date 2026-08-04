@@ -54,5 +54,6 @@ Last updated: 2026-07-15
 ## Documentation Standards
 
 - Update `docs/project_context.md` after meaningful edits.
+- Update the relevant `docs/codebase-handbook.md` sections whenever a feature or behavior changes. The handbook must explain the current end-to-end flow, data changes, authorization, transaction/invariants, errors, frontend integration, tests, and known gaps for a fresher developer.
 - Update `docs/execution_plan.md` if the phase sequence, acceptance criteria, or implementation order changes.
 - Add an ADR for architecture decisions that affect more than one module or future scalability.

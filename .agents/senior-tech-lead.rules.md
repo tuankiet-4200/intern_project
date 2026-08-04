@@ -17,7 +17,8 @@ Before making any code or document change, always read:
 3. `docs/coding-standards.md`
 4. `docs/definition-of-done.md`
 5. `docs/testing-strategy.md`
-6. Any directly relevant source files for the requested area
+6. Relevant sections of `docs/codebase-handbook.md`
+7. Any directly relevant source files for the requested area
 
 If `docs/project_context.md` or `docs/execution_plan.md` is missing, create it before continuing meaningful implementation.
 
@@ -59,6 +60,28 @@ The update must include:
 - Next recommended action.
 
 This is required so future agents can continue without losing context.
+
+## Codebase Handbook Requirement
+
+`docs/codebase-handbook.md` is the onboarding and current-code explanation source for fresher developers.
+
+After completing any feature or meaningful behavior change, update the relevant handbook sections in the same task. The update must explain, where applicable:
+
+- business purpose and actor;
+- endpoint and frontend entry point;
+- DTO/input/output;
+- controller -> service -> Prisma/external-service call order;
+- data models and fields read or written;
+- authentication, role, and ownership checks;
+- transaction boundary and rollback behavior;
+- status transitions;
+- invariants for money, inventory, idempotency, concurrency, and audit;
+- actionable failure cases;
+- frontend state flow;
+- tests that verify the behavior;
+- known limitations or deferred work.
+
+When behavior changes, revise the existing explanation instead of only appending a changelog. Do not call a feature complete while its handbook section is missing, stale, or still labels the feature as a placeholder.
 
 ## Testing Requirement
 

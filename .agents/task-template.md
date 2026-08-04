@@ -6,6 +6,7 @@ Use this checklist for every implementation task.
 
 - Read `docs/project_context.md`.
 - Read `docs/execution_plan.md`.
+- Read the relevant sections of `docs/codebase-handbook.md`.
 - Read relevant source files.
 - Identify active phase and relevant acceptance criteria.
 
@@ -41,6 +42,13 @@ Update `docs/project_context.md` with:
 - Known gaps/risks.
 - Next recommended action.
 
+Update `docs/codebase-handbook.md` for every completed feature or behavior change with:
+
+- Endpoint/UI entry point and actor.
+- Full controller/service/data flow.
+- Models, authorization, transactions, transitions, invariants, errors, tests, and limitations.
+- Corrections to any older explanation made stale by the change.
+
 ## 6. Git Delivery
 
 - Inspect status and the final diff.
@@ -55,5 +63,6 @@ Report:
 
 - What changed.
 - What tests/verification ran.
+- Which handbook sections were added or updated.
 - Commit hash and pushed branch.
 - What remains blocked or next.

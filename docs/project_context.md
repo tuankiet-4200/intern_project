@@ -129,6 +129,8 @@ Governance/context:
 - Clarified the project is build-from-scratch, not a rebuild of ProjectIII.
 - Updated agent rules so completed functionality should include tests and relevant test execution by default.
 - Updated agent rules so completed repository changes are scoped, committed with a conventional message, and pushed to the current `origin` branch after verification; force-push and unrelated-file staging are prohibited.
+- Added `docs/codebase-handbook.md`, a detailed fresher-oriented explanation of the current architecture, environment, local startup, data model, request lifecycle, every implemented business flow, frontend integration, concurrency/invariants, tests, and debugging workflow; linked it from the run guide and documented checkout shipping configuration.
+- Updated agent rules, task template, coding standards, and Definition of Done so every completed feature or behavior change must update the relevant handbook sections in the same task.
 
 ## Current Verification Status
 
