@@ -1,6 +1,6 @@
 # Production Runbook and Deployment Draft
 
-Last updated: 2026-08-04
+Last updated: 2026-08-05
 
 Tài liệu này là quy trình vận hành production baseline cho monorepo Multi-Vendor Commerce Platform sau Phase 4. Nó dùng cách diễn đạt platform-agnostic để có thể áp dụng trên VM, container platform hoặc PaaS. Trước khi go-live thật, đội vận hành phải thay các giá trị mẫu bằng secret/domain/resource thực tế và diễn tập restore/rollback trên staging.
 
@@ -19,8 +19,8 @@ Runbook bao phủ:
 
 Giới hạn hiện tại:
 
-- Rate limiter dùng memory của một API process. Chỉ xem là protection baseline cho một replica. Trước khi horizontal scaling, chuyển counter sang Redis hoặc API gateway distributed rate limiter.
-- Redis và RabbitMQ chưa nằm trong critical business path.
+- Distributed rate limiter đã dùng Redis. Với `RATE_LIMIT_FAILURE_MODE=closed`, Redis là critical request-path dependency và phải có HA/monitoring phù hợp.
+- RabbitMQ chưa nằm trong critical business path.
 - Bank transfer có signed provider-neutral webhook và refund transaction; adapter/reconciliation theo provider cụ thể chưa có.
 - Refund API chưa có admin/customer UI.
 - Access token phía Web còn ở local storage; cần CSP mạnh và sau đó chuyển sang in-memory strategy nếu threat model yêu cầu.
@@ -33,7 +33,7 @@ Internet
       -> Next.js Web
       -> NestJS API
           -> Managed PostgreSQL
-          -> Redis (future distributed limiter/cache)
+          -> Managed Redis (distributed limiter)
           -> RabbitMQ (future domain events)
 ```
 
@@ -62,6 +62,11 @@ API:
 | `SHIPPING_FEE_PER_SHOP` | Policy phí ship hiện tại |
 | `RATE_LIMIT_MAX` | Request/IP/window; tune từ traffic thật |
 | `RATE_LIMIT_WINDOW_MS` | Window milliseconds |
+| `RATE_LIMIT_STORE` | Production đặt rõ `redis` |
+| `RATE_LIMIT_FAILURE_MODE` | `closed` để giữ protection hoặc `open` để ưu tiên availability; phải được security/operations duyệt |
+| `RATE_LIMIT_KEY_PREFIX` | Namespace riêng theo app/environment |
+| `RATE_LIMIT_REDIS_CONNECT_TIMEOUT_MS` | Timeout ngắn phù hợp network nội bộ, mặc định `1000` ms |
+| `REDIS_URL` | TLS/authenticated managed Redis URL cho limiter |
 | `TRUST_PROXY_HOPS` | Số reverse proxy đáng tin trước API; `0` khi gọi trực tiếp |
 | `BANK_TRANSFER_PROVIDER` | Stable namespace, không đổi sau khi đã nhận event/reference |
 | `BANK_TRANSFER_WEBHOOK_SECRET` | HMAC secret tối thiểu 32 ký tự từ secret manager |
@@ -76,7 +81,6 @@ Web:
 
 Infrastructure/future integrations:
 
-- `REDIS_URL` khi limiter/cache chuyển sang Redis.
 - `RABBITMQ_URL` khi publish/consume events.
 - Provider API credential khi thêm request-out adapter/reconciliation; webhook secret ở trên đã bắt buộc cho callback.
 
@@ -84,7 +88,7 @@ Không log các biến secret.
 
 ## 4. CI quality gate
 
-Workflow `.github/workflows/ci.yml` chạy:
+Workflow `.github/workflows/ci.yml` chạy với PostgreSQL và Redis service:
 
 1. `npm ci`.
 2. Prisma Client generation.
@@ -144,6 +148,8 @@ npm run start -w @intern-project/web
 - Secret/config đã tồn tại ở target environment.
 - `FRONTEND_URL` và `NEXT_PUBLIC_API_URL` dùng HTTPS đúng domain.
 - Capacity PostgreSQL connection/storage/CPU đủ.
+- Redis endpoint/TLS/auth hoạt động, memory/connection capacity đủ và eviction policy không xóa limiter keys ngoài dự kiến.
+- `RATE_LIMIT_FAILURE_MODE` đã được chọn có chủ đích; không dựa vào fallback mặc định.
 - On-call và rollback owner được thông báo.
 - Không có maintenance/incident đang diễn ra.
 
@@ -181,7 +187,7 @@ Phải báo database up to date.
 4. Chuyển traffic dần.
 5. Theo dõi 5xx, latency, DB errors, memory.
 
-Hiện rate limiter memory yêu cầu giữ API ở một replica hoặc đặt distributed rate limiter tại reverse proxy/gateway.
+Mọi API replica phải dùng cùng `REDIS_URL`, `RATE_LIMIT_KEY_PREFIX`, max/window và failure mode. Nếu cấu hình khác nhau, quota/behavior giữa replicas sẽ không nhất quán.
 
 ### 7.4 Deploy Web
 
@@ -210,7 +216,12 @@ Readiness có database ping:
 curl -i https://api.example.com/api/health/ready
 ```
 
-Expected HTTP 200, `status=ready`, `database=up`. Load balancer nên dùng `/api/health` cho liveness và `/api/health/ready` cho readiness. Không đưa external non-critical services vào readiness.
+Expected HTTP 200, `status=ready`, `database=up`, `rateLimit.store=redis`, `rateLimit.status=up`. Load balancer nên dùng `/api/health` cho liveness và `/api/health/ready` cho readiness.
+
+Nếu Redis down:
+
+- fail-closed: readiness trả 503 vì business request cũng sẽ trả `RATE_LIMIT_UNAVAILABLE`.
+- fail-open: readiness trả 200 với `status=ready_degraded`; traffic tiếp tục nhưng response được đánh dấu `X-RateLimit-Policy: bypass`.
 
 ### 8.2 Public catalog
 
@@ -303,29 +314,34 @@ Thiết lập cảnh báo baseline rồi tune theo traffic:
 - p95 API latency > 1 giây trong 10 phút.
 - PostgreSQL connections > 80% pool/server limit.
 - Database CPU/storage > 80%.
+- Redis memory/connections > 80%, evictions > 0 hoặc ping latency/error tăng.
 - Process restart loop hoặc memory tăng liên tục.
 - 429 tăng bất thường.
+- `rate_limit_store_error`, `RATE_LIMIT_UNAVAILABLE` hoặc `X-RateLimit-Policy=bypass` xuất hiện.
 - Checkout conflict/insufficient stock spike bất thường.
 
 ## 10. Rate limiting
 
-Current default: 300 requests/IP/60 giây, health và OPTIONS được bỏ qua.
+Current default: 300 requests/IP/60 giây, health và OPTIONS được bỏ qua. Production dùng Redis Lua atomic counter để mọi API replica chia sẻ cùng quota.
 
 Response headers:
 
 - `X-RateLimit-Limit`.
 - `X-RateLimit-Remaining`.
 - `X-RateLimit-Reset`.
+- `X-RateLimit-Policy`: `enforced` khi Redis/memory store quyết định quota, `bypass` khi fail-open.
 - `Retry-After` khi 429.
 
 Nếu chạy sau reverse proxy, cấu hình trusted proxy chính xác để `request.ip` không trở thành IP của proxy hoặc tin mù `X-Forwarded-For` do client giả.
 
-Trước nhiều API replicas, chọn một:
+Khuyến nghị production:
 
-- API gateway rate limiter.
-- Redis-backed token bucket/sliding window.
+- `RATE_LIMIT_STORE=redis`.
+- `RATE_LIMIT_FAILURE_MODE=closed` nếu abuse protection là bắt buộc; nếu chọn `open`, phải có alert và khả năng bật protection ở gateway khi Redis outage.
+- Prefix khác nhau giữa production/staging/test.
+- Managed Redis không public internet, có TLS/auth, HA và không dùng chung eviction-sensitive cache nếu chưa có capacity policy.
 
-Không dựa vào in-memory map để enforce quota toàn cluster.
+Memory store chỉ dành cho local/unit; không dùng để enforce quota toàn cluster. Fixed window có thể burst ở ranh giới window; cân nhắc gateway token bucket/sliding window nếu traffic thực tế yêu cầu.
 
 ## 11. Database safety and backup
 
@@ -408,6 +424,15 @@ Không chạy SQL rollback ad-hoc khi chưa có backup và review.
 3. Kiểm tra logs không chứa token/cookie.
 4. Thông báo user theo incident/security policy.
 
+### 13.6 Redis/rate-limiter incident
+
+1. Kiểm tra `/api/health/ready`, Redis provider health, network/TLS/auth và event `rate_limit_store_error` theo cùng deployment window.
+2. Xác định policy hiện tại: fail-closed sẽ rút replica khỏi readiness/trả 503; fail-open vẫn nhận traffic nhưng không enforce application quota.
+3. Không đổi sang memory khi có nhiều replica: mỗi process sẽ có quota riêng và tạo cảm giác bảo vệ sai.
+4. Nếu availability bắt buộc và security owner chấp thuận, tạm chuyển fail-open bằng config rollout đồng nhất cho mọi replica, đồng thời bật/tăng gateway protection và alert bypass traffic.
+5. Nếu protection bắt buộc, giữ fail-closed, phục hồi/failover Redis rồi verify Lua quota bằng nhiều API replicas trước khi mở traffic hoàn toàn.
+6. Sau phục hồi, theo dõi Redis evictions/memory/latency, 429/503 và ghi rõ khoảng thời gian traffic từng bypass hoặc unavailable.
+
 ## 14. Security checklist
 
 - TLS/HSTS tại reverse proxy.
@@ -417,6 +442,7 @@ Không chạy SQL rollback ad-hoc khi chưa có backup và review.
 - CSP cho Web và giảm access-token exposure.
 - Dependency audit trong release cadence.
 - DB/network least privilege.
+- Redis không public, dùng TLS/auth/least privilege; production prefix và outage policy được cấu hình rõ.
 - Admin account MFA/SSO khi identity provider được bổ sung.
 - Webhook secret tối thiểu 32 ký tự, exact raw-body HMAC, timestamp window, replay/idempotency tests đều pass.
 - Không đưa `.env`, dumps, logs có PII/token vào Git/artifact.
@@ -428,6 +454,7 @@ Không chạy SQL rollback ad-hoc khi chưa có backup và review.
 - Health/public/auth/commerce smoke pass.
 - 5xx/latency/DB metrics ổn trong observation window.
 - Không có unexpected 429/CORS/cookie failure.
+- Readiness xác nhận Redis limiter up; nếu deliberate fail-open degraded thì release ticket phải ghi exception và alert/compensating gateway control.
 - Release ticket ghi commit, migration, deploy time, operator, backup ID.
 - Known gaps/risk được ghi vào `docs/project_context.md`.
 - Nếu behavior thay đổi, `docs/codebase-handbook.md` đã cập nhật.

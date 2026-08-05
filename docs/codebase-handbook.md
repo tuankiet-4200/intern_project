@@ -2,7 +2,7 @@
 
 Last updated: 2026-08-05
 
-Tài liệu này giải thích code và luồng chạy hiện tại của dự án cho developer mới, đặc biệt là fresher. Đây không phải tài liệu ý tưởng: nội dung bám theo source code đến Phase 5B coupon operations hiện tại.
+Tài liệu này giải thích code và luồng chạy hiện tại của dự án cho developer mới, đặc biệt là fresher. Đây không phải tài liệu ý tưởng: nội dung bám theo source code đến Phase 5C distributed request protection hiện tại.
 
 Khi code thay đổi, tài liệu này phải được cập nhật cùng task. Không để tài liệu mô tả endpoint, trạng thái hoặc invariant đã khác với code.
 
@@ -69,17 +69,17 @@ Không bắt đầu sửa service trước khi hiểu:
 - Signed bank-transfer webhook, replay protection và explicit partial/full refund transactions.
 - Review sau khi giao hàng, public review aggregate và customer review UI.
 - Polling order status 15 giây cho customer/vendor.
-- Request ID, security headers, structured errors, HTTP timing logs và rate limiting baseline.
-- Database readiness endpoint, full commerce e2e, CI workflow và production runbook.
+- Request ID, security headers, structured errors, HTTP timing logs và Redis distributed rate limiting.
+- Database/Redis-aware readiness endpoint, full commerce e2e, CI workflow và production runbook.
 - Customer/vendor/admin UI tương ứng.
 
 Chưa hoàn thiện hoặc mới là placeholder:
 
 - Signed webhook hiện dùng contract provider-neutral; adapter map payload riêng của SePay/VNPay/MoMo và reconciliation job vẫn chưa có.
 - Refund đã có API/admin transaction và provider callback, nhưng chưa có admin/customer UI.
-- Redis và RabbitMQ đã có local infrastructure nhưng business flow hiện tại chưa publish/consume message.
+- Redis đang được dùng cho distributed rate limiting; RabbitMQ chưa publish/consume message.
 - Notification hiện là polling; chưa có notification inbox/event delivery.
-- Rate limiter hiện dùng memory của một API process; cần gateway/Redis trước khi chạy nhiều replica.
+- Rate limiter đã chia sẻ quota qua Redis; fixed-window vẫn có thể burst ở biên window và cần managed Redis HA khi production fail-closed.
 - CI đã verify code nhưng chưa có CD tự động tới một hosting provider cụ thể.
 
 Không được mô tả các mục “chưa hoàn thiện” như tính năng production-ready.
@@ -152,18 +152,18 @@ Docker Compose cung cấp:
 | Service | Host port | Vai trò hiện tại |
 |---|---:|---|
 | PostgreSQL 16 | 5433 | Database chính, đang dùng thật |
-| Redis 7 | 6380 | Hạ tầng chuẩn bị, chưa nối business flow |
+| Redis 7 | 6380 | Shared atomic counter cho distributed rate limiter |
 | RabbitMQ | 5673 | Hạ tầng async chuẩn bị, chưa nối business flow |
 | RabbitMQ UI | 15673 | Trang quản trị RabbitMQ |
 
-Không thêm Redis/RabbitMQ vào một flow chỉ vì chúng tồn tại. Chỉ dùng khi có yêu cầu rõ về cache/event, failure handling và test.
+Redis hiện là critical request-protection dependency khi cấu hình fail-closed. RabbitMQ vẫn chỉ được thêm vào business flow khi có yêu cầu rõ về event, failure handling và test.
 
 ### 3.5 Environment variables
 
 | Biến | App | Ý nghĩa | Default/fallback trong code |
 |---|---|---|---|
 | `DATABASE_URL` | API/Prisma | PostgreSQL connection string | Bắt buộc cho Prisma |
-| `REDIS_URL` | API | Redis connection chuẩn bị | Chưa được business module dùng |
+| `REDIS_URL` | API | Redis connection cho distributed limiter | Bắt buộc khi store là `redis` |
 | `RABBITMQ_URL` | API | RabbitMQ connection chuẩn bị | Chưa được business module dùng |
 | `JWT_ACCESS_SECRET` | API | Secret ký/verify access JWT | `change_me_access`, chỉ chấp nhận local |
 | `JWT_ACCESS_TTL` | API | Thời gian sống access token | `15m` |
@@ -173,6 +173,10 @@ Không thêm Redis/RabbitMQ vào một flow chỉ vì chúng tồn tại. Chỉ 
 | `SHIPPING_FEE_PER_SHOP` | API | Phí ship fixed cho mỗi shop khi quote | `30000` |
 | `RATE_LIMIT_MAX` | API | Số request tối đa mỗi IP/window | `300` |
 | `RATE_LIMIT_WINDOW_MS` | API | Độ dài rate-limit window | `60000` |
+| `RATE_LIMIT_STORE` | API | `redis` dùng quota chung hoặc `memory` chỉ cho local/unit | Tự chọn `redis` nếu có `REDIS_URL`, ngược lại `memory` |
+| `RATE_LIMIT_FAILURE_MODE` | API | Redis lỗi thì `closed` trả 503 hay `open` cho qua | `open`; production khuyến nghị set rõ `closed` |
+| `RATE_LIMIT_KEY_PREFIX` | API | Namespace Redis theo app/environment | `intern-commerce:rate-limit` |
+| `RATE_LIMIT_REDIS_CONNECT_TIMEOUT_MS` | API | Timeout kết nối limiter tới Redis | `1000` |
 | `TRUST_PROXY_HOPS` | API | Số reverse proxy đáng tin trước API | `0` |
 | `BANK_TRANSFER_PROVIDER` | API | Stable provider namespace dùng cho unique reference/event | `bank-transfer` |
 | `BANK_TRANSFER_WEBHOOK_SECRET` | API | HMAC-SHA256 secret xác thực raw webhook body | Bắt buộc để bật webhook |
@@ -225,7 +229,7 @@ Luồng khởi động:
 - Prefix `/api` cho mọi route.
 - Trusted proxy hops khi `TRUST_PROXY_HOPS > 0` để Express xác định client IP đúng.
 - Request-context middleware sinh/validate `x-request-id` và thêm security headers.
-- Fixed-window rate limiter theo IP.
+- Fixed-window rate limiter theo IP với Redis atomic shared quota.
 - `cookie-parser` để đọc refresh cookie.
 - CORS chỉ cho `FRONTEND_URL`, mặc định `http://localhost:3000`.
 - `credentials: true` để browser gửi HttpOnly cookie cross-origin giữa hai local port.
@@ -240,6 +244,55 @@ ValidationPipe có ba option quan trọng:
 - `transform: true`: cho phép class-transformer đổi query string thành number khi DTO dùng `@Type(() => Number)`.
 
 Fresher thường mắc lỗi thêm field vào request nhưng quên thêm vào DTO; request sẽ bị `400` trước khi vào controller.
+
+#### 4.2.1 Luồng distributed rate limiting
+
+Code chính nằm ở `common/middleware/rate-limit.middleware.ts`. `RateLimitMiddleware` là Nest provider trong `AppModule`; `configureApp()` lấy đúng provider đó từ dependency-injection container rồi bind vào Express. `HealthController` cũng inject cùng instance để readiness và request path nhìn cùng store/lifecycle.
+
+Luồng một request thường:
+
+```text
+request
+  -> bỏ qua nếu OPTIONS hoặc health probe
+  -> Express resolve request.ip (phụ thuộc TRUST_PROXY_HOPS)
+  -> SHA-256(client IP)
+  -> Redis key = prefix + hash
+  -> Lua: INCR -> first-write PEXPIRE -> PTTL
+  -> count <= limit: set quota headers, gọi next()
+  -> count > limit: 429 TOO_MANY_REQUESTS + Retry-After
+```
+
+Lua script rất quan trọng. Nếu code chạy `GET`, tính ở Node rồi `SET`, hai replica có thể cùng đọc một giá trị và cùng cho request qua. `INCR` là atomic trong Redis; đặt expiry trong cùng script bảo đảm request đầu tiên vừa tạo counter vừa tạo TTL. `PTTL` trả thời gian còn lại để API tính `X-RateLimit-Reset` và `Retry-After`.
+
+Key không chứa IP thô. Middleware hash IP rồi mới ghép với `RATE_LIMIT_KEY_PREFIX`. Prefix phải khác giữa production/staging/test nếu dùng chung Redis; nếu không, các môi trường sẽ trừ quota của nhau. Hash chỉ giảm việc lộ trực tiếp IP trong key, không thay thế policy bảo vệ dữ liệu/log.
+
+Hai store được hỗ trợ:
+
+- `redis`: dùng production/CI để mọi replica chia sẻ quota.
+- `memory`: Map cục bộ, chỉ phù hợp unit test hoặc local không có Redis; nhiều process sẽ không chia sẻ quota.
+
+Khi Redis lỗi:
+
+- `failureMode=closed`: trả structured `503 RATE_LIMIT_UNAVAILABLE`, không gọi controller. Đây là policy chặt được khuyến nghị khi abuse protection là bắt buộc.
+- `failureMode=open`: cho request đi tiếp, đặt `X-RateLimit-Policy: bypass` và ghi structured warning. Đây là lựa chọn availability có chủ đích, không phải trạng thái “vẫn được bảo vệ”.
+
+Khi Redis hoạt động, response luôn có `X-RateLimit-Policy: enforced`, limit, remaining và reset. Health/OPTIONS được bỏ qua để load balancer vẫn probe được trong lúc limiter lỗi.
+
+Readiness `/api/health/ready` ping PostgreSQL rồi ping limiter store:
+
+- Cả hai up: `200`, `status=ready`.
+- Redis down + fail-open: `200`, `status=ready_degraded`, để instance vẫn nhận traffic theo policy availability.
+- Redis down + fail-closed: `503`; instance không nên nhận traffic vì mọi business request cũng sẽ bị 503.
+
+`RedisRateLimitStore` dùng lazy connection và một shared `connectPromise`. Các request đến đồng thời trong lúc client đang connect phải await cùng promise; không được tự kết luận trạng thái `connecting` là lỗi. `onModuleDestroy()` đóng client để test/process shutdown không giữ socket.
+
+Các lỗi thường gặp:
+
+- Tất cả user có chung quota: kiểm tra `TRUST_PROXY_HOPS`; API có thể đang thấy IP của reverse proxy.
+- Quota không chung giữa replicas: kiểm tra tất cả replica cùng `REDIS_URL`, prefix và `RATE_LIMIT_STORE=redis`.
+- Readiness 503 dù PostgreSQL up: xem object `rateLimit` và Redis connectivity; không bỏ dependency khỏi readiness nếu đang fail-closed.
+- Local test báo connection closed trong sandbox: xác minh Redis container/port và quyền local-network của môi trường test trước khi sửa thuật toán.
+- Redis có nhiều key test: integration test dùng prefix ngẫu nhiên và TTL 5 giây nên key tự hết hạn; không dùng production prefix trong load test.
 
 ### 4.3 Module, controller, service, DTO
 
@@ -1743,6 +1796,7 @@ Dùng mocked Prisma/dependency để test rule nhanh:
 - Catalog visibility/status.
 - Inventory rule.
 - Address default behavior.
+- Memory limiter 429/health bypass, fail-open/fail-closed và readiness policy.
 
 Ưu điểm: nhanh, chỉ ra rule fail rõ. Nhược điểm: không chứng minh transaction/constraint thật.
 
@@ -1757,7 +1811,7 @@ Kết nối PostgreSQL thật:
 - Payment signed webhook và partial/full/concurrent refund.
 - Coupon campaign rules, immutable used terms, per-account enforcement và competing checkout.
 - Review buyer/delivery/duplicate/ownership rules.
-- Rate limiter response shape và threshold.
+- Redis rate limiter dùng hai instance để chứng minh quota chung và bốn instance/100 request để chứng minh atomic quota dưới concurrent load.
 
 Phase 3 integration test xác minh:
 
@@ -1804,11 +1858,11 @@ npm run build -w @intern-project/web
 npx prisma validate --schema apps/api/prisma/schema.prisma
 ```
 
-Integration tests cần PostgreSQL local đang chạy và migration mới nhất đã apply.
+Integration tests cần PostgreSQL local đang chạy, migration mới nhất đã apply và Redis local ở `REDIS_URL`.
 
 ### 26.5 CI và production handoff
 
-`.github/workflows/ci.yml` chạy trên pull request và push main với PostgreSQL 16 service:
+`.github/workflows/ci.yml` chạy trên pull request và push main với PostgreSQL 16 cùng Redis 7 service:
 
 1. npm clean install.
 2. Prisma generate/migrate deploy.
@@ -1817,7 +1871,7 @@ Integration tests cần PostgreSQL local đang chạy và migration mới nhất
 5. Auth + commerce e2e.
 6. API/Web production builds.
 
-`docs/production-runbook.md` là deployment draft và on-call guide: environment/secrets, backup, migration order, API/Web rollout, liveness/readiness, smoke test, logging/request ID, alerts, rate-limit limitation, rollback và incident playbooks.
+`docs/production-runbook.md` là deployment draft và on-call guide: environment/secrets, backup, migration order, API/Web rollout, liveness/readiness, Redis limiter policy, smoke test, logging/request ID, alerts, rollback và incident playbooks.
 
 CI là quality gate, chưa tự deploy tới provider cụ thể. Khi thêm CD phải giữ migration là release job chạy một lần và không để mọi API replica đồng thời chạy `migrate dev`.
 

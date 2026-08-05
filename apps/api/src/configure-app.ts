@@ -18,7 +18,7 @@ export function configureApp(app: INestApplication) {
   app.setGlobalPrefix('api');
   app.use(requestContextMiddleware);
   app.use(requestLoggingMiddleware);
-  const rateLimiter = new RateLimitMiddleware(config);
+  const rateLimiter = app.get(RateLimitMiddleware);
   app.use(rateLimiter.use.bind(rateLimiter));
   app.use(cookieParser());
   app.enableCors({

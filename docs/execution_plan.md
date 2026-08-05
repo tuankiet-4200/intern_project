@@ -230,13 +230,21 @@ Phase 5B coupon operations completed:
 - Locked code/scope/shop/type/value after first usage and prevented limits below historical usage.
 - Added database check constraints and PostgreSQL integration coverage including competing checkout.
 
+Phase 5C distributed request protection completed:
+
+- Replaced process-local production quota with a Redis-backed fixed-window limiter shared by all API replicas.
+- Added an atomic Lua `INCR`/`PEXPIRE` operation, hashed client-IP keys and configurable key namespaces.
+- Added explicit fail-open/fail-closed behavior, structured 503/429 responses and policy response headers.
+- Added Redis-aware readiness: fail-closed outages reject readiness while fail-open outages report degraded readiness.
+- Added Redis health checks locally and a Redis service in CI.
+- Added unit, real-Redis multi-instance and 100-request concurrent load coverage.
+
 Next implementation order:
 
-1. Redis-backed distributed rate limiter with fail-open/fail-closed policy and multi-instance tests.
-2. Refresh-session cleanup job plus frontend CSP/token-storage hardening.
-3. Provider-specific bank-transfer adapter and reconciliation job.
-4. Persisted notifications/outbox and operational UI.
-5. Staging deployment, backup/restore/load/rollback drills and provider-specific CD.
+1. Refresh-session cleanup job plus frontend CSP/token-storage hardening.
+2. Provider-specific bank-transfer adapter and reconciliation job.
+3. Persisted notifications/outbox and operational UI.
+4. Staging deployment, backup/restore/load/rollback drills and provider-specific CD.
 
 ## Backlog
 

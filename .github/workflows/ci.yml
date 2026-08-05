@@ -27,6 +27,15 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
 
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/intern_project?schema=public
@@ -38,6 +47,9 @@ jobs:
       SHIPPING_FEE_PER_SHOP: 30000
       RATE_LIMIT_MAX: 1000
       RATE_LIMIT_WINDOW_MS: 60000
+      RATE_LIMIT_STORE: redis
+      RATE_LIMIT_FAILURE_MODE: closed
+      REDIS_URL: redis://localhost:6379
 
     steps:
       - name: Checkout

@@ -66,6 +66,14 @@ Coupon:
 - Quote and commit enforce global and per-customer limits.
 - Competing checkout cannot create usage beyond a per-customer limit.
 
+Infrastructure/request protection:
+
+- Memory limiter returns structured 429 responses and bypasses health probes.
+- Redis limiter enforces one atomic quota across independent API instances.
+- Concurrent requests cannot admit more than the configured shared quota.
+- Redis outage behavior is explicit: fail-open bypasses with a policy header; fail-closed returns structured 503.
+- Readiness reports ready, degraded or unavailable consistently with the configured failure mode.
+
 Frontend:
 
 - Critical pages render.

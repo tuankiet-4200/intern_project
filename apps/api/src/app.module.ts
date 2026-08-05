@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { HealthController } from './common/health.controller';
+import { RateLimitMiddleware } from './common/middleware/rate-limit.middleware';
 import { AuthModule } from './modules/auth/auth.module';
 import { CartModule } from './modules/cart/cart.module';
 import { CatalogModule } from './modules/catalog/catalog.module';
@@ -31,5 +32,6 @@ import { PrismaModule } from './prisma/prisma.module';
     ReviewsModule,
   ],
   controllers: [HealthController],
+  providers: [RateLimitMiddleware],
 })
 export class AppModule {}

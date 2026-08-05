@@ -154,6 +154,16 @@ Phase 5B coupon operations:
 - Added operational `/admin/coupons` create/edit/status UI and linked it from the admin dashboard.
 - Added PostgreSQL integration coverage for campaign rules, two customers, account exhaustion and competing checkout.
 
+Phase 5C distributed request protection:
+
+- Replaced the production process-local counter with a Redis-backed fixed-window quota shared across API replicas.
+- Added an atomic Lua counter/expiry operation and SHA-256 client-IP keys under a configurable namespace.
+- Kept an explicit memory store for local/unit use and added configurable fail-open/fail-closed Redis outage policy.
+- Added structured limiter policy headers, 429 quota responses and fail-closed 503 responses.
+- Extended readiness with limiter store state: fail-closed Redis failure is not ready; fail-open failure is ready but degraded.
+- Added Redis health checks to Docker Compose and Redis-backed verification to CI.
+- Added unit tests, readiness policy tests, real-Redis cross-instance tests and a four-instance/100-request concurrency test.
+
 Governance/context:
 
 - Added `.agents/senior-tech-lead.rules.md`.
@@ -221,13 +231,18 @@ Verified:
 - Full E2E regression suite remained green: 3 suites, 4 tests.
 - Root lint and API production build passed after Phase 5B.
 - Web production build passed with 16 static routes including `/admin/coupons`.
+- Full API unit/integration suite passed after Phase 5C: 15 suites, 29 tests, including real Redis shared-quota and four-instance concurrent-load coverage.
+- Full E2E regression suite passed after Phase 5C: 3 suites, 4 tests.
+- Root API/Web lint, API production build and Web production build with 16 static routes passed after Phase 5C.
+- Production API runtime smoke returned Redis readiness `up` and `X-RateLimit-Policy: enforced` with shared quota headers on a public request.
+- `docker compose config` remained valid and the local Redis container reported healthy.
 
 ## Current Risks / Gaps
 
 - Bank transfer has a signed provider-neutral webhook, but a provider-specific payload adapter/API reconciliation job is still pending.
 - Refund API/state/audit are implemented for bank transfer, but admin/customer refund UI and COD refund policy are still pending.
 - Coupon administration and per-user limits are implemented; vendor self-service campaigns and customer coupon discovery remain pending.
-- The current per-IP rate limiter is process-local; move it to an API gateway or Redis before horizontal API scaling.
+- Redis is now a critical API dependency when `RATE_LIMIT_FAILURE_MODE=closed`; production needs managed Redis high availability, capacity monitoring and an intentional outage policy.
 - CI is implemented, but provider-specific CD and a real staging deployment/restore drill are still pending.
 - Polling provides order updates, but there is no persisted notification inbox or event delivery yet.
 - Refresh-session cleanup for expired/revoked rows should be added as a maintenance job before production.
@@ -238,8 +253,8 @@ Verified:
 
 The planned Phase 1-4 roadmap is complete. Recommended post-roadmap priorities:
 
-1. Move rate limiting to Redis/API gateway and perform a multi-replica load test.
-2. Harden frontend token storage/CSP and add refresh-session cleanup.
-3. Add the selected bank-transfer provider adapter/reconciliation job and refund UI.
-4. Add vendor coupon self-service/customer discovery only after defining moderation rules.
-5. Deploy to staging, run backup/restore and rollback drills, then connect provider-specific CD.
+1. Harden frontend token storage/CSP and add refresh-session cleanup.
+2. Add the selected bank-transfer provider adapter/reconciliation job and refund UI.
+3. Add vendor coupon self-service/customer discovery only after defining moderation rules.
+4. Add persisted notifications/outbox after defining delivery semantics.
+5. Deploy to staging, run backup/restore, load and rollback drills, then connect provider-specific CD.
