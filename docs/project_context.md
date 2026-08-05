@@ -164,6 +164,18 @@ Phase 5C distributed request protection:
 - Added Redis health checks to Docker Compose and Redis-backed verification to CI.
 - Added unit tests, readiness policy tests, real-Redis cross-instance tests and a four-instance/100-request concurrency test.
 
+Phase 5D session lifecycle and browser hardening:
+
+- Added `RefreshSessionCleanupService` with configurable enablement, interval, retention, batch size and maximum batches.
+- Added bounded PostgreSQL CTE deletion with `FOR UPDATE SKIP LOCKED` and a transaction advisory lock that prevents concurrent multi-replica cleanup.
+- Kept cleanup non-blocking at application bootstrap, logged structured outcomes/errors and stopped its unref'd timer on shutdown.
+- Added PostgreSQL integration coverage proving only terminal sessions older than retention are deleted.
+- Replaced browser localStorage access-token persistence with module-memory state and automatic removal of the legacy session key.
+- Added refresh-on-missing-memory behavior so page reload recovers through the HttpOnly cookie, plus one shared refresh promise for concurrent requests.
+- Added a session-version race guard so late refresh responses cannot restore state after logout/clear/account replacement.
+- Added Web CSP/security headers with an allowlisted API origin and unit coverage for production policy construction.
+- Added a Web Jest suite and CI Web unit-test step.
+
 Governance/context:
 
 - Added `.agents/senior-tech-lead.rules.md`.
@@ -236,6 +248,12 @@ Verified:
 - Root API/Web lint, API production build and Web production build with 16 static routes passed after Phase 5C.
 - Production API runtime smoke returned Redis readiness `up` and `X-RateLimit-Policy: enforced` with shared quota headers on a public request.
 - `docker compose config` remained valid and the local Redis container reported healthy.
+- Full API unit/integration suite passed after Phase 5D: 16 suites, 31 tests, including retention deletion and competing cleanup-worker lock coverage.
+- Web unit suite passed after Phase 5D: 2 suites, 6 tests for memory-only tokens, reload recovery, concurrent/stale refresh races and CSP construction.
+- Full E2E regression remained green after Phase 5D: 3 suites, 4 tests.
+- Root API/Web lint, API production build and Web production build with 16 static routes passed after Phase 5D.
+- Web production runtime smoke returned the configured CSP/COOP/Permissions/Referrer/nosniff/frame headers and no `X-Powered-By` header.
+- Browser hydration/console smoke could not run because no in-app/Chrome browser instance was available; production build, HTTP runtime smoke and unit tests passed.
 
 ## Current Risks / Gaps
 
@@ -245,16 +263,15 @@ Verified:
 - Redis is now a critical API dependency when `RATE_LIMIT_FAILURE_MODE=closed`; production needs managed Redis high availability, capacity monitoring and an intentional outage policy.
 - CI is implemented, but provider-specific CD and a real staging deployment/restore drill are still pending.
 - Polling provides order updates, but there is no persisted notification inbox or event delivery yet.
-- Refresh-session cleanup for expired/revoked rows should be added as a maintenance job before production.
-- Access tokens remain in local storage; refresh tokens are HttpOnly. Consider in-memory access tokens plus CSP hardening in Phase 4.
+- Access tokens are memory-only and refresh sessions are cleaned after retention; active-page XSS can still access runtime state, so CSP must remain restrictive and third-party scripts require security review.
+- The static Turbopack-compatible CSP still requires `script-src 'unsafe-inline'`; strict nonce/SRI CSP is deferred until Next.js supports a stable Turbopack/static-generation path or the project accepts dynamic rendering/webpack trade-offs.
 - `npm audit --omit=dev` still reports high advisories through transitive Next.js/PostCSS/Sharp dependencies; npm does not currently offer a non-breaking automatic remediation for the installed release line.
 
 ## Next Recommended Step
 
 The planned Phase 1-4 roadmap is complete. Recommended post-roadmap priorities:
 
-1. Harden frontend token storage/CSP and add refresh-session cleanup.
-2. Add the selected bank-transfer provider adapter/reconciliation job and refund UI.
-3. Add vendor coupon self-service/customer discovery only after defining moderation rules.
-4. Add persisted notifications/outbox after defining delivery semantics.
-5. Deploy to staging, run backup/restore, load and rollback drills, then connect provider-specific CD.
+1. Add the selected bank-transfer provider adapter/reconciliation job and refund UI.
+2. Add vendor coupon self-service/customer discovery only after defining moderation rules.
+3. Add persisted notifications/outbox after defining delivery semantics.
+4. Deploy to staging, run backup/restore, load and rollback drills, then connect provider-specific CD.

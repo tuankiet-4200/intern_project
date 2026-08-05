@@ -8,32 +8,31 @@ export type SessionUser = {
   status: string;
 };
 
-type Session = {
+export type Session = {
   accessToken: string;
   user: SessionUser;
 };
 
-const SESSION_KEY = 'intern-commerce-session';
+const LEGACY_SESSION_KEY = 'intern-commerce-session';
+let activeSession: Session | null = null;
+let sessionVersion = 0;
 let refreshRequest: Promise<Session> | null = null;
 
 export function getSession(): Session | null {
-  if (typeof window === 'undefined') return null;
-  const value = window.localStorage.getItem(SESSION_KEY);
-  if (!value) return null;
-  try {
-    return JSON.parse(value) as Session;
-  } catch {
-    window.localStorage.removeItem(SESSION_KEY);
-    return null;
-  }
+  removeLegacyPersistedSession();
+  return activeSession;
 }
 
 export function saveSession(session: Session) {
-  window.localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  activeSession = session;
+  sessionVersion += 1;
+  removeLegacyPersistedSession();
 }
 
 export function clearSession() {
-  window.localStorage.removeItem(SESSION_KEY);
+  activeSession = null;
+  sessionVersion += 1;
+  removeLegacyPersistedSession();
 }
 
 export async function apiRequest<T>(path: string, init: RequestInit = {}, requireAuth = false): Promise<T> {
@@ -49,14 +48,19 @@ async function requestWithRefresh<T>(
   const headers = new Headers(init.headers);
   if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
 
+  let canRefreshAfterResponse = canRefresh;
   if (requireAuth) {
-    const session = getSession();
-    if (!session) throw new Error('Please sign in to continue');
+    let session = getSession();
+    if (!session) {
+      if (!canRefresh) throw new Error('Please sign in to continue');
+      session = await refreshSession();
+      canRefreshAfterResponse = false;
+    }
     headers.set('Authorization', `Bearer ${session.accessToken}`);
   }
 
   const response = await fetch(`${API_URL}${path}`, { ...init, headers, credentials: 'include' });
-  if (response.status === 401 && requireAuth && canRefresh) {
+  if (response.status === 401 && requireAuth && canRefreshAfterResponse) {
     await refreshSession();
     return requestWithRefresh<T>(path, init, requireAuth, false);
   }
@@ -72,6 +76,7 @@ async function requestWithRefresh<T>(
 
 async function refreshSession() {
   if (!refreshRequest) {
+    const versionAtStart = sessionVersion;
     refreshRequest = fetch(`${API_URL}/auth/refresh`, {
       method: 'POST',
       credentials: 'include',
@@ -79,6 +84,9 @@ async function refreshSession() {
       .then(async (response) => {
         if (!response.ok) throw new Error('Your session has expired. Please sign in again.');
         const session = (await response.json()) as Session;
+        if (sessionVersion !== versionAtStart) {
+          throw new Error('Session changed while refresh was in progress. Please retry.');
+        }
         saveSession(session);
         return session;
       })
@@ -91,6 +99,15 @@ async function refreshSession() {
       });
   }
   return refreshRequest;
+}
+
+function removeLegacyPersistedSession() {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem(LEGACY_SESSION_KEY);
+  } catch {
+    // Storage may be unavailable under strict browser privacy settings.
+  }
 }
 
 export function formatVnd(value: string | number) {

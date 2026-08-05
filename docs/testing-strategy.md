@@ -21,6 +21,8 @@ Auth/RBAC:
 - Refresh token rotates and the old token cannot be reused.
 - Logout revokes the active refresh session.
 - Public registration cannot provision vendor/admin roles.
+- Cleanup deletes only expired/revoked sessions older than retention and preserves recent/active sessions.
+- Multiple cleanup workers use a database lock and bounded batches rather than racing unbounded deletes.
 
 Shop:
 
@@ -80,6 +82,11 @@ Frontend:
 - Forms show validation and API errors.
 - Vendor/admin pages enforce expected workflow states.
 - Full happy path is covered once API is wired.
+- Access tokens are not written to localStorage and the legacy persisted key is removed.
+- A protected request after reload restores memory state through the HttpOnly refresh cookie.
+- Concurrent protected requests share one refresh call.
+- A late refresh response cannot restore memory state after logout/session clear.
+- Production CSP allows only the configured API connection origin and blocks object/frame embedding.
 
 ## Default Commands
 

@@ -23,7 +23,7 @@ Giới hạn hiện tại:
 - RabbitMQ chưa nằm trong critical business path.
 - Bank transfer có signed provider-neutral webhook và refund transaction; adapter/reconciliation theo provider cụ thể chưa có.
 - Refund API chưa có admin/customer UI.
-- Access token phía Web còn ở local storage; cần CSP mạnh và sau đó chuyển sang in-memory strategy nếu threat model yêu cầu.
+- Access token phía Web đã memory-only; static Turbopack CSP còn cần `unsafe-inline`, nên mọi third-party script/widget phải qua security review.
 
 ## 2. Kiến trúc deploy đề xuất
 
@@ -58,6 +58,11 @@ API:
 | `JWT_ACCESS_SECRET` | Random secret đủ dài, nằm trong secret manager |
 | `JWT_ACCESS_TTL` | Khuyến nghị `15m` |
 | `REFRESH_TOKEN_TTL_DAYS` | Khuyến nghị 30 hoặc theo security policy |
+| `REFRESH_SESSION_CLEANUP_ENABLED` | Production đặt `true` trừ khi dùng external maintenance worker |
+| `REFRESH_SESSION_CLEANUP_INTERVAL_MS` | Khoảng chạy, mặc định 6 giờ; tối thiểu 1 phút |
+| `REFRESH_SESSION_RETENTION_DAYS` | Số ngày giữ expired/revoked rows để điều tra, mặc định 7 |
+| `REFRESH_SESSION_CLEANUP_BATCH_SIZE` | Rows mỗi batch, mặc định 500, cap 5000 |
+| `REFRESH_SESSION_CLEANUP_MAX_BATCHES` | Work cap mỗi run, mặc định 10, cap 100 |
 | `FRONTEND_URL` | Exact HTTPS Web origin cho CORS |
 | `SHIPPING_FEE_PER_SHOP` | Policy phí ship hiện tại |
 | `RATE_LIMIT_MAX` | Request/IP/window; tune từ traffic thật |
@@ -94,7 +99,7 @@ Workflow `.github/workflows/ci.yml` chạy với PostgreSQL và Redis service:
 2. Prisma Client generation.
 3. Migrations trên PostgreSQL 16 service.
 4. API/Web lint.
-5. Unit + integration tests.
+5. API unit/integration và Web session/CSP unit tests.
 6. Auth + full commerce e2e.
 7. API/Web production builds.
 
@@ -150,6 +155,8 @@ npm run start -w @intern-project/web
 - Capacity PostgreSQL connection/storage/CPU đủ.
 - Redis endpoint/TLS/auth hoạt động, memory/connection capacity đủ và eviction policy không xóa limiter keys ngoài dự kiến.
 - `RATE_LIMIT_FAILURE_MODE` đã được chọn có chủ đích; không dựa vào fallback mặc định.
+- Refresh-session cleanup retention/batch/interval đã phù hợp traffic và support investigation window.
+- Web response CSP `connect-src` chứa đúng production API origin, không có staging/localhost origin.
 - On-call và rollback owner được thông báo.
 - Không có maintenance/incident đang diễn ra.
 
@@ -238,6 +245,8 @@ Expected 200 và structured pagination.
 - Xác nhận refresh cookie có `HttpOnly`, `Secure`, `SameSite=Lax`, đúng path.
 - Gọi protected `/api/users/me`.
 - Refresh token một lần; token cũ phải bị reject nếu reuse.
+- Reload protected page: access token memory mất nhưng HttpOnly cookie phải khôi phục session qua đúng một refresh request.
+- Browser localStorage không còn key `intern-commerce-session` sau login/reload.
 - Logout; refresh token vừa logout phải bị reject.
 
 ### 8.4 Commerce smoke
@@ -318,6 +327,7 @@ Thiết lập cảnh báo baseline rồi tune theo traffic:
 - Process restart loop hoặc memory tăng liên tục.
 - 429 tăng bất thường.
 - `rate_limit_store_error`, `RATE_LIMIT_UNAVAILABLE` hoặc `X-RateLimit-Policy=bypass` xuất hiện.
+- `refresh_session_cleanup_error` lặp lại hoặc bảng `refresh_sessions` tăng liên tục ngoài retention expectation.
 - Checkout conflict/insufficient stock spike bất thường.
 
 ## 10. Rate limiting
@@ -351,6 +361,14 @@ Memory store chỉ dành cho local/unit; không dùng để enforce quota toàn 
 - Migration user có thể tách riêng nếu policy yêu cầu.
 - Diễn tập restore định kỳ; backup chưa test restore không được xem là backup đáng tin.
 - Theo dõi slow queries, lock waits, table/index growth.
+
+Refresh-session maintenance:
+
+- Mỗi API replica có timer nhưng PostgreSQL transaction advisory lock chỉ cho một cleanup run thực thi.
+- Job giữ expired/revoked rows trong retention window rồi xóa theo bounded batch; không xóa active rows.
+- Nếu backlog lớn hơn `batchSize * maxBatches`, để các interval sau drain dần hoặc tăng cap có review; không chạy unbounded `DELETE` giờ cao điểm.
+- Theo dõi số row theo `expires_at`/`revoked_at`, autovacuum/bloat và cleanup error. Cleanup lỗi không làm API startup fail.
+- Không xóa trực tiếp session gần đây đang cần cho security investigation nếu chưa export evidence theo policy.
 
 Core invariant audit queries nên được chuẩn bị cho:
 
@@ -433,13 +451,22 @@ Không chạy SQL rollback ad-hoc khi chưa có backup và review.
 5. Nếu protection bắt buộc, giữ fail-closed, phục hồi/failover Redis rồi verify Lua quota bằng nhiều API replicas trước khi mở traffic hoàn toàn.
 6. Sau phục hồi, theo dõi Redis evictions/memory/latency, 429/503 và ghi rõ khoảng thời gian traffic từng bypass hoặc unavailable.
 
+### 13.7 Refresh-session cleanup incident
+
+1. Tìm event `refresh_session_cleanup_error`, kiểm tra migration/schema, DB permissions, lock/statement timeout và connection pressure.
+2. Query số terminal rows cũ hơn retention để xác định backlog; không suy luận chỉ từ tổng row count vì active/recent rows phải được giữ.
+3. Xác minh một transaction có advisory lock; nhiều replica bỏ qua do không lấy được lock là behavior bình thường, không phải lỗi.
+4. Nếu cần drain backlog, tăng batch/max-batches từng bước trong maintenance window và theo dõi locks, WAL, replication lag, autovacuum.
+5. Không giảm retention khẩn cấp khi security/support đang điều tra session reuse nếu chưa có approval và evidence export.
+
 ## 14. Security checklist
 
 - TLS/HSTS tại reverse proxy.
 - Production JWT secret không dùng fallback.
 - Refresh cookie Secure/HttpOnly.
 - Exact CORS origin, không wildcard với credentials.
-- CSP cho Web và giảm access-token exposure.
+- Access token chỉ ở memory; refresh token HttpOnly; legacy localStorage key bị xóa.
+- CSP/API `connect-src` allowlist và browser security headers được smoke-test sau deploy; không mở wildcard cho widget mới.
 - Dependency audit trong release cadence.
 - DB/network least privilege.
 - Redis không public, dùng TLS/auth/least privilege; production prefix và outage policy được cấu hình rõ.
@@ -454,6 +481,7 @@ Không chạy SQL rollback ad-hoc khi chưa có backup và review.
 - Health/public/auth/commerce smoke pass.
 - 5xx/latency/DB metrics ổn trong observation window.
 - Không có unexpected 429/CORS/cookie failure.
+- Protected-page reload refreshes once, localStorage remains token-free và Web CSP header có đúng API origin.
 - Readiness xác nhận Redis limiter up; nếu deliberate fail-open degraded thì release ticket phải ghi exception và alert/compensating gateway control.
 - Release ticket ghi commit, migration, deploy time, operator, backup ID.
 - Known gaps/risk được ghi vào `docs/project_context.md`.

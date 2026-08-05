@@ -2,7 +2,7 @@
 
 Last updated: 2026-08-05
 
-Tài liệu này giải thích code và luồng chạy hiện tại của dự án cho developer mới, đặc biệt là fresher. Đây không phải tài liệu ý tưởng: nội dung bám theo source code đến Phase 5C distributed request protection hiện tại.
+Tài liệu này giải thích code và luồng chạy hiện tại của dự án cho developer mới, đặc biệt là fresher. Đây không phải tài liệu ý tưởng: nội dung bám theo source code đến Phase 5D session lifecycle/browser hardening hiện tại.
 
 Khi code thay đổi, tài liệu này phải được cập nhật cùng task. Không để tài liệu mô tả endpoint, trạng thái hoặc invariant đã khác với code.
 
@@ -52,6 +52,7 @@ Không bắt đầu sửa service trước khi hiểu:
 Đã chạy thật:
 
 - Authentication bằng access JWT và opaque refresh token.
+- Refresh-session retention cleanup và browser memory-only access token.
 - RBAC cho customer, vendor, admin.
 - Profile và address.
 - Shop onboarding và admin review.
@@ -71,6 +72,7 @@ Không bắt đầu sửa service trước khi hiểu:
 - Polling order status 15 giây cho customer/vendor.
 - Request ID, security headers, structured errors, HTTP timing logs và Redis distributed rate limiting.
 - Database/Redis-aware readiness endpoint, full commerce e2e, CI workflow và production runbook.
+- Web CSP, browser security headers và Web unit-test suite.
 - Customer/vendor/admin UI tương ứng.
 
 Chưa hoàn thiện hoặc mới là placeholder:
@@ -80,6 +82,7 @@ Chưa hoàn thiện hoặc mới là placeholder:
 - Redis đang được dùng cho distributed rate limiting; RabbitMQ chưa publish/consume message.
 - Notification hiện là polling; chưa có notification inbox/event delivery.
 - Rate limiter đã chia sẻ quota qua Redis; fixed-window vẫn có thể burst ở biên window và cần managed Redis HA khi production fail-closed.
+- CSP static/Turbopack vẫn cần `unsafe-inline`; strict nonce/SRI policy còn phụ thuộc hỗ trợ ổn định từ Next.js hoặc quyết định đổi rendering/bundler.
 - CI đã verify code nhưng chưa có CD tự động tới một hosting provider cụ thể.
 
 Không được mô tả các mục “chưa hoàn thiện” như tính năng production-ready.
@@ -134,7 +137,7 @@ Backend là một process NestJS nhưng chia theo bounded context:
 
 ### 3.3 Frontend: workflow-first Next.js
 
-Frontend dùng Next.js App Router. Các page hiện tại là client component vì cần local state, browser local storage và gọi API trực tiếp.
+Frontend dùng Next.js App Router. Các page hiện tại là client component vì cần local state, browser fetch/cookie flow và gọi API trực tiếp.
 
 Không có state-management library toàn cục. Mỗi page quản lý:
 
@@ -168,6 +171,11 @@ Redis hiện là critical request-protection dependency khi cấu hình fail-clo
 | `JWT_ACCESS_SECRET` | API | Secret ký/verify access JWT | `change_me_access`, chỉ chấp nhận local |
 | `JWT_ACCESS_TTL` | API | Thời gian sống access token | `15m` |
 | `REFRESH_TOKEN_TTL_DAYS` | API | Cookie/session refresh TTL | `30` ngày |
+| `REFRESH_SESSION_CLEANUP_ENABLED` | API | Bật maintenance cleanup | `true` |
+| `REFRESH_SESSION_CLEANUP_INTERVAL_MS` | API | Khoảng chạy cleanup | `21600000` (6 giờ), tối thiểu 1 phút |
+| `REFRESH_SESSION_RETENTION_DAYS` | API | Giữ session terminal sau expire/revoke để điều tra | `7` ngày |
+| `REFRESH_SESSION_CLEANUP_BATCH_SIZE` | API | Số row tối đa mỗi batch | `500`, cap `5000` |
+| `REFRESH_SESSION_CLEANUP_MAX_BATCHES` | API | Số batch tối đa mỗi run | `10`, cap `100` |
 | `FRONTEND_URL` | API | CORS allowed origin | `http://localhost:3000` |
 | `PORT` | API | API listen port | `3005` |
 | `SHIPPING_FEE_PER_SHOP` | API | Phí ship fixed cho mỗi shop khi quote | `30000` |
@@ -584,7 +592,7 @@ sequenceDiagram
   Controller-->>UI: Set-Cookie(HttpOnly) + JSON access token
 ```
 
-Tại frontend, `/register` lưu `{accessToken, user}` vào local storage rồi chuyển tới `/vendor/shop`, nơi customer có thể gửi shop request. User không tự nâng role.
+Tại frontend, `/register` giữ `{accessToken, user}` trong module memory rồi chuyển tới `/vendor/shop`, nơi customer có thể gửi shop request. User không tự nâng role.
 
 ---
 
@@ -606,13 +614,13 @@ Thông báo “Invalid credentials” cố tình giống nhau cho email không t
 
 `apiRequest(path, init, true)`:
 
-1. Đọc session từ local storage.
-2. Nếu không có session, throw “Please sign in to continue”.
+1. Đọc session từ module memory.
+2. Nếu memory trống sau reload, gọi `/auth/refresh` bằng HttpOnly cookie để khôi phục session.
 3. Gắn `Authorization: Bearer ...`.
 4. Gọi fetch với `credentials: include`.
-5. Nếu response `401`, gọi refresh đúng một lần.
-6. Lưu access token mới.
-7. Retry request gốc một lần.
+5. Nếu response `401` khi request bắt đầu bằng token cũ, gọi refresh đúng một lần.
+6. Lưu access token mới vào memory.
+7. Retry request gốc một lần; không tạo vòng lặp refresh vô hạn.
 
 Biến module-level `refreshRequest` chống nhiều request cùng lúc tạo nhiều refresh call. Các request cùng chờ một Promise.
 
@@ -636,9 +644,36 @@ Endpoint: `POST /api/auth/refresh`.
 - `POST /auth/logout`: revoke session tương ứng cookie hiện tại, clear cookie.
 - `POST /auth/logout-all`: cần JWT, revoke mọi active session của user, clear cookie hiện tại.
 
-Frontend còn gọi `clearSession()` để xóa access token/user khỏi local storage.
+Frontend còn gọi `clearSession()` để xóa access token/user khỏi memory và xóa legacy localStorage key nếu còn từ release cũ.
 
-Security note hiện tại: refresh token an toàn hơn nhờ HttpOnly cookie; access token vẫn ở local storage và cần CSP/in-memory hardening ở Phase 4.
+Security note: refresh token nằm trong HttpOnly cookie và access token chỉ ở memory. Điều này giảm token tồn tại sau reload/browser restart nhưng không chống được script XSS đang chạy trong chính page; CSP và output/dependency hygiene vẫn bắt buộc.
+
+### 8.5 Refresh-session cleanup
+
+Provider: `RefreshSessionCleanupService` trong Auth module.
+
+Mục tiêu là giới hạn tăng trưởng bảng `refresh_sessions` nhưng vẫn giữ session expired/revoked gần đây để debug incident hoặc truy dấu reuse. Cleanup không xóa session active và không xóa terminal session chưa qua retention.
+
+Luồng mỗi lần chạy:
+
+```text
+bootstrap hoặc interval
+  -> tính cutoff = now - retention days
+  -> mở PostgreSQL transaction
+  -> pg_try_advisory_xact_lock(stable lock id)
+  -> không lấy được lock: replica khác đang chạy, kết thúc không lỗi
+  -> CTE chọn tối đa batchSize terminal rows
+  -> FOR UPDATE SKIP LOCKED
+  -> DELETE ... RETURNING id
+  -> lặp tối đa maxBatches hoặc dừng khi batch chưa đầy
+  -> commit và tự nhả transaction advisory lock
+```
+
+Session đủ điều kiện khi `expiresAt <= cutoff` hoặc `revokedAt <= cutoff`. Cleanup theo batch để không tạo một transaction xóa không giới hạn. `SKIP LOCKED` tránh chờ row đang được transaction khác giữ; advisory lock ngăn các API replica cleanup đồng thời. Replica chạy ngay sau khi lock được nhả có thể acquire rồi no-op vì candidate đã hết; đây là scan nhỏ, không phải duplicate delete.
+
+Job chạy ngay sau bootstrap rồi theo interval. Timer gọi `unref()` nên không giữ process/test sống; `onModuleDestroy()` clear timer. Cleanup error chỉ ghi structured `refresh_session_cleanup_error`, không làm API startup fail vì đây là maintenance path, không phải request invariant. Operations phải alert lỗi lặp lại vì table sẽ tiếp tục tăng.
+
+Integration test tạo bốn loại row: expired cũ, revoked cũ, expired gần đây và active; chỉ hai row terminal quá retention được xóa. Test thứ hai giữ advisory lock ở transaction khác và xác minh worker cạnh tranh trả `acquired=false` mà không xóa.
 
 ---
 
@@ -1508,7 +1543,9 @@ Helper làm:
 - set JSON content type nếu có body;
 - gắn Bearer token khi `requireAuth=true`;
 - gửi cookie;
+- tự refresh khi protected request bắt đầu mà memory token trống sau reload;
 - refresh/retry một lần khi 401;
+- dùng chung một `refreshRequest` Promise cho các request concurrent;
 - parse NestJS `message` string hoặc array;
 - throw Error để page hiển thị.
 
@@ -1516,16 +1553,36 @@ Nếu endpoint protected nhưng quên truyền argument thứ ba `true`, request
 
 ### 21.2 Session storage
 
-Local storage key: `intern-commerce-session`.
-
-Lưu:
+Session hiện tại chỉ nằm trong biến module-level `activeSession`:
 
 - accessToken.
 - safe user.
 
-Không lưu refresh token; nó thuộc HttpOnly cookie và JavaScript không đọc được.
+Không persist session vào localStorage/sessionStorage/IndexedDB. Key cũ `intern-commerce-session` chỉ còn để helper chủ động `removeItem`; code không đọc hoặc migrate token cũ trở lại memory.
 
-### 21.3 Page pattern
+Không lưu refresh token; nó thuộc HttpOnly cookie và JavaScript không đọc được. Khi reload làm memory trống, protected API call đầu tiên refresh qua cookie rồi tiếp tục. Nếu cookie hết hạn/revoked, helper clear memory và trả lỗi yêu cầu đăng nhập lại.
+
+Hai request protected cùng đến lúc memory trống đều await cùng `refreshRequest`. Nếu mỗi request tự rotate cookie riêng, request thứ hai sẽ reuse token cũ và bị reject; promise deduplication giữ rotation đúng một lần.
+
+`sessionVersion` chặn một refresh response đến trễ khôi phục session sau khi user đã logout/clear hoặc đăng nhập account khác. Refresh chỉ được save nếu version lúc response về vẫn bằng version lúc request bắt đầu.
+
+### 21.3 Content Security Policy và browser headers
+
+`lib/security-headers.ts` tạo policy; `next.config.ts` áp dụng cho mọi route.
+
+Production CSP hiện tại:
+
+- chỉ load script/style/font/image/worker theo allowlist;
+- `connect-src` chỉ cho same-origin và origin rút từ `NEXT_PUBLIC_API_URL`;
+- chặn plugin/object, frame embedding và thay đổi base URL;
+- chặn `unsafe-eval` ở production;
+- form chỉ submit same-origin.
+
+Các header bổ sung gồm COOP, Permissions-Policy, Referrer-Policy, nosniff và deny framing; Next `X-Powered-By` bị tắt. `NEXT_PUBLIC_API_URL` phải là absolute URL; config fail fast nếu chỉ truyền `/api`.
+
+Policy static vẫn có `unsafe-inline` cho Next/Turbopack framework scripts và styles. Strict nonce CSP theo hướng dẫn Next hiện yêu cầu dynamic rendering và nhánh webpack thử nghiệm; đổi theo hướng đó sẽ mất static generation/CDN benefit nên chưa thực hiện âm thầm. Khi thêm analytics/payment widget, không mở wildcard; review chính xác script/connect/frame origin và threat model.
+
+### 21.4 Page pattern
 
 Các page data-driven thường dùng:
 
@@ -1544,7 +1601,7 @@ Mọi page phải có loading, error và empty state phù hợp.
 ### 22.1 `/login`
 
 - Gọi `/auth/login`.
-- Lưu session.
+- Giữ session trong memory và xóa legacy localStorage key.
 - Redirect theo role:
   - ADMIN -> `/admin/shops`.
   - VENDOR -> `/vendor/products`.
@@ -1553,7 +1610,7 @@ Mọi page phải có loading, error và empty state phù hợp.
 ### 22.2 `/register`
 
 - Gọi `/auth/register` không gửi role.
-- Lưu customer session.
+- Giữ customer session trong memory.
 - Redirect `/vendor/shop` để user có thể request shop.
 
 ### 22.3 `/profile`
@@ -1797,6 +1854,7 @@ Dùng mocked Prisma/dependency để test rule nhanh:
 - Inventory rule.
 - Address default behavior.
 - Memory limiter 429/health bypass, fail-open/fail-closed và readiness policy.
+- Web memory-only session, reload refresh deduplication và CSP builder.
 
 Ưu điểm: nhanh, chỉ ra rule fail rõ. Nhược điểm: không chứng minh transaction/constraint thật.
 
@@ -1811,6 +1869,7 @@ Kết nối PostgreSQL thật:
 - Payment signed webhook và partial/full/concurrent refund.
 - Coupon campaign rules, immutable used terms, per-account enforcement và competing checkout.
 - Review buyer/delivery/duplicate/ownership rules.
+- Refresh-session cleanup retention, active-row preservation và bounded deletion.
 - Redis rate limiter dùng hai instance để chứng minh quota chung và bốn instance/100 request để chứng minh atomic quota dưới concurrent load.
 
 Phase 3 integration test xác minh:
@@ -1851,6 +1910,7 @@ Test integration phải cleanup dữ liệu theo đúng dependency order: order 
 
 ```bash
 npm test -w @intern-project/api -- --runInBand
+npm test -w @intern-project/web -- --runInBand
 npm run test:e2e -w @intern-project/api
 npm run lint
 npm run build -w @intern-project/api
@@ -1867,8 +1927,8 @@ Integration tests cần PostgreSQL local đang chạy, migration mới nhất đ
 1. npm clean install.
 2. Prisma generate/migrate deploy.
 3. Lint.
-4. Unit/integration tests.
-5. Auth + commerce e2e.
+4. API unit/integration và Web session/CSP unit tests.
+5. Auth + commerce/payment e2e.
 6. API/Web production builds.
 
 `docs/production-runbook.md` là deployment draft và on-call guide: environment/secrets, backup, migration order, API/Web rollout, liveness/readiness, Redis limiter policy, smoke test, logging/request ID, alerts, rollback và incident playbooks.
@@ -1893,11 +1953,13 @@ Kiểm tra:
 ### 27.2 API trả 401
 
 - Page có gọi `apiRequest(..., true)` không?
-- Local storage có session không?
+- In-memory session có token chưa; nếu vừa reload thì `/auth/refresh` có thành công không?
 - Access JWT expired?
 - Refresh cookie path là `/api/auth`; cookie có được gửi không?
 - CORS origin/credentials đúng không?
 - User/session có active, unrevoked, unexpired không?
+
+Không khôi phục access token từ legacy localStorage để “sửa nhanh”; đó là behavior đã loại bỏ có chủ đích.
 
 ### 27.3 API trả 403
 

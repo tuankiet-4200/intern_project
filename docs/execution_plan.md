@@ -239,12 +239,23 @@ Phase 5C distributed request protection completed:
 - Added Redis health checks locally and a Redis service in CI.
 - Added unit, real-Redis multi-instance and 100-request concurrent load coverage.
 
+Phase 5D session lifecycle and browser hardening completed:
+
+- Added periodic, retention-aware RefreshSession cleanup with bounded batches.
+- Added a PostgreSQL transaction advisory lock and `SKIP LOCKED` candidate selection so multiple API replicas cannot clean concurrently.
+- Preserved recent expired/revoked rows for investigation while deleting terminal sessions older than the configured retention.
+- Moved Web access tokens from localStorage to module memory and remove the legacy persisted token key.
+- Added automatic HttpOnly-cookie refresh when a protected request starts without an in-memory token after page reload.
+- Added shared refresh deduplication for concurrent protected requests.
+- Added a session-version guard so a late refresh response cannot resurrect a cleared/replaced session.
+- Added restrictive Web CSP and complementary browser security headers while preserving Turbopack static generation.
+- Added PostgreSQL cleanup integration coverage and Web unit coverage for memory sessions, reload recovery, concurrent refresh and CSP construction.
+
 Next implementation order:
 
-1. Refresh-session cleanup job plus frontend CSP/token-storage hardening.
-2. Provider-specific bank-transfer adapter and reconciliation job.
-3. Persisted notifications/outbox and operational UI.
-4. Staging deployment, backup/restore/load/rollback drills and provider-specific CD.
+1. Provider-specific bank-transfer adapter and reconciliation job.
+2. Persisted notifications/outbox and operational UI.
+3. Staging deployment, backup/restore/load/rollback drills and provider-specific CD.
 
 ## Backlog
 

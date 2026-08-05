@@ -77,6 +77,9 @@ jobs:
       - name: Unit and integration tests
         run: npm test -w @intern-project/api -- --runInBand
 
+      - name: Web unit tests
+        run: npm test -w @intern-project/web -- --runInBand
+
       - name: End-to-end tests
         run: npm run test:e2e -w @intern-project/api
 
