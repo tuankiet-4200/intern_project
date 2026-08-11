@@ -265,6 +265,15 @@ Phase 5E product and operational completion:
 - Added scheduled operational-drill workflow and provider-neutral staging build/push/migrate/rollout/smoke workflow.
 - Upgraded Next.js to 16.3.0; production dependency audit now reports zero vulnerabilities.
 
+Phase 5F role-aware frontend experience completed:
+
+- Replaced the shared mixed-role header with separated Customer storefront, Vendor workspace and Admin workspace shells.
+- Added role-derived navigation and frontend route gates without weakening backend JWT/RBAC/ownership enforcement.
+- Rebuilt the catalog around product search, category filtering, responsive product cards and actionable loading/error/empty states.
+- Reworked login/register to explain and redirect each role correctly; new customers now return to the storefront and opt into shop onboarding explicitly.
+- Added dedicated Vendor/Admin overview dashboards, shared visual tokens and responsive desktop/mobile navigation.
+- Added Web unit coverage for navigation visibility, customer onboarding access and cross-workspace denial.
+
 Remaining external integration:
 
 1. Provider-specific bank-transfer adapter and reconciliation job.

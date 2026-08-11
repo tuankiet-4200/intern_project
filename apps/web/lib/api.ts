@@ -17,6 +17,7 @@ const LEGACY_SESSION_KEY = 'intern-commerce-session';
 let activeSession: Session | null = null;
 let sessionVersion = 0;
 let refreshRequest: Promise<Session> | null = null;
+const sessionListeners = new Set<(session: Session | null) => void>();
 
 export function getSession(): Session | null {
   removeLegacyPersistedSession();
@@ -27,12 +28,28 @@ export function saveSession(session: Session) {
   activeSession = session;
   sessionVersion += 1;
   removeLegacyPersistedSession();
+  notifySessionListeners();
 }
 
 export function clearSession() {
   activeSession = null;
   sessionVersion += 1;
   removeLegacyPersistedSession();
+  notifySessionListeners();
+}
+
+export function subscribeSession(listener: (session: Session | null) => void) {
+  sessionListeners.add(listener);
+  return () => sessionListeners.delete(listener);
+}
+
+export async function restoreSession() {
+  if (activeSession) return activeSession;
+  try {
+    return await refreshSession();
+  } catch {
+    return null;
+  }
 }
 
 export async function apiRequest<T>(path: string, init: RequestInit = {}, requireAuth = false): Promise<T> {
@@ -108,6 +125,10 @@ function removeLegacyPersistedSession() {
   } catch {
     // Storage may be unavailable under strict browser privacy settings.
   }
+}
+
+function notifySessionListeners() {
+  for (const listener of sessionListeners) listener(activeSession);
 }
 
 export function formatVnd(value: string | number) {

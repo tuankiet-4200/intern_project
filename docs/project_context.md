@@ -189,6 +189,15 @@ Phase 5E provider-neutral completion:
 - Added non-root API/Web Dockerfiles, smoke/load scripts, guarded backup/restore drill, scheduled operational drill and provider-neutral staging release workflow.
 - Upgraded Next.js to 16.3.0; `npm audit --omit=dev` reports zero vulnerabilities.
 
+Phase 5F role-aware frontend UX:
+
+- Replaced the mixed global navigation with a Customer storefront and dedicated Vendor/Admin workspace shells.
+- Added session-reactive navigation, role-based frontend route gating and cross-workspace access states; API JWT/RBAC/ownership remains the security boundary.
+- Rebuilt the public catalog with Vietnamese marketplace content, search, category filters, responsive product cards and real API loading/error/empty/action feedback.
+- Reworked login/register role selection and redirects; Customer registration now returns to the storefront instead of entering vendor onboarding automatically.
+- Added polished responsive Vendor/Admin overview dashboards and shared visual tokens for buttons, fields, cards, focus and reduced motion.
+- Added navigation unit coverage for each role, customer shop onboarding and protected-workspace isolation.
+
 Governance/context:
 
 - Added `.agents/senior-tech-lead.rules.md`.
@@ -279,6 +288,9 @@ Verified:
 - Bounded 500-request/25-concurrency load smoke passed with zero failures and p95 23 ms on the local machine.
 - Guarded backup/restore drill passed against an isolated local restore database: 6 migrations and 6 user rows matched the source; the temporary database was removed afterward.
 - Production dependency audit passed with zero vulnerabilities.
+- Phase 5F Web lint passed; Web unit suite passed with 3 suites/10 tests after role-aware navigation coverage.
+- Phase 5F Web production build passed with 19 static routes using webpack; default Turbopack build was blocked by the execution environment's internal process-port restriction rather than a source/type error.
+- Local runtime HTTP smoke returned 200 for the redesigned storefront, public products and categories, and confirmed the new storefront content in rendered HTML.
 
 ## Current Risks / Gaps
 
@@ -289,6 +301,7 @@ Verified:
 - Access tokens are memory-only and refresh sessions are cleaned after retention; active-page XSS can still access runtime state, so CSP must remain restrictive and third-party scripts require security review.
 - The static Turbopack-compatible CSP still requires `script-src 'unsafe-inline'`; strict nonce/SRI CSP is deferred until Next.js supports a stable Turbopack/static-generation path or the project accepts dynamic rendering/webpack trade-offs.
 - Browser hydration/console QA could not run in this session because browser discovery returned no available browser; production build, HTTP/container runtime smoke and automated tests remain green.
+- Visual click-through remains to be rerun when an in-app/Chrome browser is attached; this session again reported no available browser after the required connection troubleshooting.
 
 ## Next Recommended Step
 

@@ -2,7 +2,7 @@
 
 Last updated: 2026-08-11
 
-Tài liệu này giải thích code và luồng chạy hiện tại của dự án cho developer mới, đặc biệt là fresher. Đây không phải tài liệu ý tưởng: nội dung bám theo source code đến Phase 5E provider-neutral completion hiện tại.
+Tài liệu này giải thích code và luồng chạy hiện tại của dự án cho developer mới, đặc biệt là fresher. Đây không phải tài liệu ý tưởng: nội dung bám theo source code đến Phase 5F role-aware frontend completion hiện tại.
 
 Khi code thay đổi, tài liệu này phải được cập nhật cùng task. Không để tài liệu mô tả endpoint, trạng thái hoặc invariant đã khác với code.
 
@@ -137,7 +137,7 @@ Backend là một process NestJS nhưng chia theo bounded context:
 
 ### 3.3 Frontend: workflow-first Next.js
 
-Frontend dùng Next.js App Router. Các page hiện tại là client component vì cần local state, browser fetch/cookie flow và gọi API trực tiếp.
+Frontend dùng Next.js App Router. Các page tương tác là client component vì cần local state, browser fetch/cookie flow và gọi API trực tiếp; dashboard landing không cần state vẫn có thể là server component.
 
 Không có state-management library toàn cục. Mỗi page quản lý:
 
@@ -147,6 +147,14 @@ Không có state-management library toàn cục. Mỗi page quản lý:
 - trạng thái form/submitting
 
 `apps/web/lib/api.ts` là điểm chung cho URL API, Bearer token, refresh retry, error parsing và format tiền.
+
+`apps/web/components/AppShell.tsx` và `apps/web/lib/navigation.ts` tạo ba trải nghiệm tách biệt trên cùng ứng dụng:
+
+- Customer storefront: header mua sắm, catalog, giỏ hàng, đơn mua và thông báo.
+- Vendor workspace: sidebar riêng cho cửa hàng, sản phẩm, đơn bán và khuyến mãi.
+- Admin workspace: sidebar riêng cho duyệt shop, category, coupon và refund.
+
+Việc tách shell giúp user không nhìn thấy một menu trộn lẫn mọi actor. Đây là lớp UX; JWT guard, RolesGuard và ownership check ở API vẫn là lớp authorization bắt buộc.
 
 ### 3.4 Infrastructure
 
@@ -592,7 +600,7 @@ sequenceDiagram
   Controller-->>UI: Set-Cookie(HttpOnly) + JSON access token
 ```
 
-Tại frontend, `/register` giữ `{accessToken, user}` trong module memory rồi chuyển tới `/vendor/shop`, nơi customer có thể gửi shop request. User không tự nâng role.
+Tại frontend, `/register` giữ `{accessToken, user}` trong module memory rồi chuyển về storefront `/`. Customer chỉ mở `/vendor/shop` khi chủ động chọn Kênh người bán; user không tự nâng role.
 
 ---
 
@@ -1665,6 +1673,31 @@ Các page data-driven thường dùng:
 
 Mọi page phải có loading, error và empty state phù hợp.
 
+### 21.5 Role-aware shell, navigation và frontend access flow
+
+Entry point dùng chung là `AppShell`. Khi một page render:
+
+1. `usePathname()` lấy route hiện tại.
+2. `resolveSurface()` phân route thành `auth`, `customer`, `vendor` hoặc `admin`.
+3. `useSyncExternalStore()` subscribe session memory qua `subscribeSession()`. Server snapshot luôn là `null` để tránh hydration mismatch; browser snapshot phản ánh `activeSession` hiện tại.
+4. `restoreSession()` thử dùng access session trong memory; nếu memory trống, helper rotate HttpOnly refresh cookie qua `/auth/refresh`.
+5. `navigationFor(surface, role)` chỉ trả các mục menu phù hợp. Khi role chưa xác định hoặc khác workspace, menu protected là mảng rỗng nên không bị lộ trong lúc loading/access denied.
+6. `canAccessPath(pathname, role)` quyết định render page hay `AccessState`. Protected workspace hiển thị loading cho tới khi refresh hoàn tất.
+7. Backend vẫn kiểm tra JWT/RBAC/ownership khi page gọi API. Không được xem `canAccessPath()` là security boundary vì client code có thể bị sửa.
+
+Phân quyền UI hiện tại:
+
+| Actor | Storefront | Vendor workspace | Admin workspace |
+|---|---|---|---|
+| Chưa đăng nhập | Catalog; protected action yêu cầu login | Không truy cập | Không truy cập |
+| CUSTOMER | Catalog, cart, order, notification | Chỉ `/vendor/shop` để onboarding | Không truy cập |
+| VENDOR | Customer purchase flow và nút chuyển workspace | Toàn bộ vendor navigation | Không truy cập |
+| ADMIN | Catalog, notification và nút chuyển workspace; không hiện cart/order | Không truy cập | Toàn bộ admin navigation |
+
+`StorefrontShell` có responsive top navigation, account/workspace action và mobile bottom navigation. `WorkspaceShell` dùng sidebar desktop và horizontal navigation trên mobile. Global token, button/input states, card shadow, focus ring và reduced-motion nằm ở `app/globals.css`; page không nên tự tạo một visual language khác.
+
+Frontend route gate có unit test tại `lib/navigation.spec.ts` cho menu theo role, customer shop onboarding, truy cập chéo và workspace landing. Khi thêm route mới, developer phải cập nhật đồng thời navigation mapping, `canAccessPath()` và test. Nếu route có business permission mới, phải thêm guard backend riêng; chỉ thêm menu là chưa đủ.
+
 ---
 
 ## 22. Luồng từng màn hình frontend
@@ -1674,15 +1707,16 @@ Mọi page phải có loading, error và empty state phù hợp.
 - Gọi `/auth/login`.
 - Giữ session trong memory và xóa legacy localStorage key.
 - Redirect theo role:
-  - ADMIN -> `/admin/shops`.
-  - VENDOR -> `/vendor/products`.
+  - ADMIN -> `/admin`.
+  - VENDOR -> `/vendor`.
   - CUSTOMER -> `/`.
+- Ba demo account selector chỉ đổi email trên form; server response mới là nguồn xác định role và redirect.
 
 ### 22.2 `/register`
 
 - Gọi `/auth/register` không gửi role.
 - Giữ customer session trong memory.
-- Redirect `/vendor/shop` để user có thể request shop.
+- Redirect `/` về storefront. Nếu muốn bán hàng, user chủ động mở `/vendor/shop` từ nút Kênh người bán và gửi shop request.
 
 ### 22.3 `/profile`
 
@@ -1694,10 +1728,12 @@ Mọi page phải có loading, error và empty state phù hợp.
 
 ### 22.4 `/`
 
-- Public load `/products`.
-- Tính available để display.
+- Public load song song `/products?limit=24` và `/categories`.
+- Search/category submit gọi lại `/products` bằng query `search` và `categoryId`; backend vẫn lọc product ACTIVE, approved shop và available stock.
+- Tính `available = onHand - reserved` để display và khóa nút khi hết hàng.
 - Add to cart gọi protected `/cart/items`.
-- Nếu chưa login, helper trả lỗi yêu cầu sign in.
+- Nếu chưa login, helper trả lỗi yêu cầu sign in và UI hiển thị link login; success/error không làm mất catalog đang có.
+- Product image dùng URL đầu tiên trong `images`; khi chưa có ảnh, card dùng visual placeholder nhất quán thay vì khối xám trống.
 
 ### 22.5 `/cart`
 

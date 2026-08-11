@@ -99,6 +99,7 @@ Frontend:
 - A late refresh response cannot restore memory state after logout/session clear.
 - Production CSP allows only the configured API connection origin and blocks object/frame embedding.
 - Notification, refund and vendor-coupon pages compile and expose loading/error/empty states.
+- Role-aware navigation exposes only the current actor's workspace, permits customer shop onboarding, and hides protected navigation before session recovery or on cross-workspace access.
 
 Operations:
 

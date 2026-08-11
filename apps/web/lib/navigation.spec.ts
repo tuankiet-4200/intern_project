@@ -1,0 +1,35 @@
+import { describe, expect, it } from '@jest/globals';
+import { canAccessPath, navigationFor, resolveSurface, workspaceHref } from './navigation';
+
+describe('role-aware navigation', () => {
+  it('separates customer, vendor, and admin navigation', () => {
+    expect(navigationFor('customer', 'CUSTOMER').map((item) => item.href)).toEqual([
+      '/', '/cart', '/orders', '/notifications',
+    ]);
+    expect(navigationFor('vendor', 'VENDOR').map((item) => item.href)).toContain('/vendor/products');
+    expect(navigationFor('admin', 'ADMIN').map((item) => item.href)).toContain('/admin/refunds');
+    expect(navigationFor('admin', 'ADMIN').map((item) => item.href)).not.toContain('/cart');
+    expect(navigationFor('customer', 'ADMIN').map((item) => item.href)).toEqual(['/', '/notifications']);
+  });
+
+  it('allows customer shop onboarding without exposing vendor operations', () => {
+    expect(canAccessPath('/vendor/shop', 'CUSTOMER')).toBe(true);
+    expect(canAccessPath('/vendor/products', 'CUSTOMER')).toBe(false);
+    expect(navigationFor('vendor', 'CUSTOMER').map((item) => item.href)).toEqual(['/vendor/shop']);
+  });
+
+  it('does not reveal navigation for another protected workspace', () => {
+    expect(navigationFor('admin', 'VENDOR')).toEqual([]);
+    expect(navigationFor('vendor', 'ADMIN')).toEqual([]);
+    expect(navigationFor('admin')).toEqual([]);
+  });
+
+  it('protects role workspaces and resolves their landing pages', () => {
+    expect(canAccessPath('/admin/shops', 'VENDOR')).toBe(false);
+    expect(canAccessPath('/admin/shops', 'ADMIN')).toBe(true);
+    expect(canAccessPath('/vendor/orders', 'VENDOR')).toBe(true);
+    expect(resolveSurface('/admin/coupons')).toBe('admin');
+    expect(workspaceHref('ADMIN')).toBe('/admin');
+    expect(workspaceHref('VENDOR')).toBe('/vendor');
+  });
+});
