@@ -75,16 +75,42 @@ describe('CatalogService integration', () => {
         slug: `catalog-test-product-${suffix}`,
         categoryId: root.id,
         price: 100,
+        compareAtPrice: 125,
+        description: 'Original catalog description',
+        images: ['https://images.example.com/catalog-original.jpg'],
+        attributes: { color: 'green', warrantyMonths: 12 },
         initialStock: 5,
       });
       productId = product.id;
+      expect(product.compareAtPrice?.toString()).toBe('125');
+      expect(product.images).toEqual(['https://images.example.com/catalog-original.jpg']);
+      expect(product.attributes).toEqual({ color: 'green', warrantyMonths: 12 });
+
+      await expect(catalog.updateProduct(owner.id, product.id, { compareAtPrice: 90 })).rejects.toThrow(
+        'Compare-at price must be greater than price',
+      );
 
       await expect(
         catalog.updateProduct(otherVendor.id, product.id, { name: 'Unauthorized Update' }),
       ).rejects.toBeInstanceOf(ForbiddenException);
 
-      const updated = await catalog.updateProduct(owner.id, product.id, { name: 'Updated Product' });
+      const updated = await catalog.updateProduct(owner.id, product.id, {
+        name: 'Updated Product',
+        slug: `updated-catalog-product-${suffix}`,
+        categoryId: child.id,
+        price: 110,
+        compareAtPrice: 150,
+        description: 'Updated catalog description',
+        images: ['https://images.example.com/catalog-updated.jpg'],
+        attributes: { material: 'steel', featured: true },
+      });
       expect(updated.name).toBe('Updated Product');
+      expect(updated.slug).toBe(`updated-catalog-product-${suffix}`);
+      expect(updated.categoryId).toBe(child.id);
+      expect(updated.description).toBe('Updated catalog description');
+      expect(updated.compareAtPrice?.toString()).toBe('150');
+      expect(updated.images).toEqual(['https://images.example.com/catalog-updated.jpg']);
+      expect(updated.attributes).toEqual({ material: 'steel', featured: true });
 
       const active = await catalog.updateProductStatus(owner.id, product.id, {
         status: ProductStatus.ACTIVE,

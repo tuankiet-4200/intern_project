@@ -1,6 +1,6 @@
 # Project Context
 
-Last updated: 2026-08-11
+Last updated: 2026-08-12
 
 ## Project Identity
 
@@ -201,6 +201,11 @@ Phase 5F role-aware frontend UX:
 - Linked catalog product imagery/names to detail while keeping the quick add-to-cart action independent and accessible.
 - Added resilient secondary loading so review/recommendation failure does not hide core product information, plus read-only Admin purchase UX.
 - Added pure helper coverage for available stock, cart quantity bounds, compare-at discounts and safe product attributes.
+- Fixed the catalog-card image collapse caused by converting the aspect-ratio container to an inline Link.
+- Expanded product create/update DTOs and CatalogService for description, compare-at price, up to eight HTTP(S) image URLs and bounded scalar attributes.
+- Rebuilt `/vendor/products` authoring with complete create/edit sections, image URL previews/removal, cover ordering, attribute rows and clearer stock-ledger separation.
+- Extended Web image CSP for HTTPS product images and development-only HTTP previews; scripts/connections remain restricted.
+- Added Catalog PostgreSQL coverage for merchandising persistence/validation and Web helper coverage for image/attribute form normalization.
 
 Governance/context:
 
@@ -297,6 +302,9 @@ Verified:
 - Local runtime HTTP smoke returned 200 for the redesigned storefront, public products and categories, and confirmed the new storefront content in rendered HTML.
 - Product detail Web lint passed; Web unit suite passed with 4 suites/14 tests; production build passed with 19 static routes plus dynamic `/products/[slug]`.
 - Runtime smoke returned 200 for `/products/modular-desk-lamp`, its public product API and public reviews API using seeded data.
+- Expanded Catalog integration test and full API regression passed against PostgreSQL/Redis: 17 suites, 35 tests.
+- API/Web lint passed; Web unit suite passed with 5 suites/20 tests; API and Web production builds passed for product authoring/card repair.
+- Runtime HTTP smoke returned 200 for catalog and Vendor products; a fresh production Web process confirmed `img-src 'self' blob: data: https:`. The pre-existing dev process retains its old CSP until restarted because Next config is startup-loaded.
 
 ## Current Risks / Gaps
 
@@ -309,6 +317,8 @@ Verified:
 - Browser hydration/console QA could not run in this session because browser discovery returned no available browser; production build, HTTP/container runtime smoke and automated tests remain green.
 - Visual click-through remains to be rerun when an in-app/Chrome browser is attached; this session again reported no available browser after the required connection troubleshooting.
 - Product detail currently uses client-side data loading, so per-product server metadata/SEO and review pagination controls remain optional UX follow-ups; purchase and authorization correctness are unaffected.
+- Product images currently use Vendor-managed URLs. Direct binary upload remains pending selection of object storage/CDN and a signed upload/scanning policy; container filesystem/base64 persistence is intentionally not used.
+- Browser discovery again returned no available in-app/Chrome instance, so the card fix was verified by the block/aspect-ratio source invariant, builds/tests and HTTP runtime rather than an automated screenshot.
 
 ## Next Recommended Step
 

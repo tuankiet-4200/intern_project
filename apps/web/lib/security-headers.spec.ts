@@ -11,12 +11,19 @@ describe('Web security headers', () => {
 
     expect(csp).toContain("default-src 'self'");
     expect(csp).toContain("connect-src 'self' https://api.example.com");
+    expect(csp).toContain("img-src 'self' blob: data: https:;");
     expect(csp).toContain("object-src 'none'");
     expect(csp).toContain("script-src-attr 'none'");
     expect(csp).toContain("frame-src 'none'");
     expect(csp).toContain("frame-ancestors 'none'");
     expect(csp).not.toContain("'unsafe-eval'");
     expect(headers).toContainEqual({ key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), payment=()' });
+  });
+
+  it('allows HTTP product-image previews only during local development', () => {
+    const headers = buildSecurityHeaders({ apiUrl: 'http://localhost:3005/api', isDevelopment: true });
+    const csp = headers.find((header) => header.key === 'Content-Security-Policy')?.value;
+    expect(csp).toContain("img-src 'self' blob: data: https: http:");
   });
 
   it('fails fast when the public API URL is not absolute', () => {

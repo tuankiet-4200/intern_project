@@ -1,6 +1,6 @@
 # Testing Strategy
 
-Last updated: 2026-08-11
+Last updated: 2026-08-12
 
 ## Testing Pyramid
 
@@ -37,6 +37,7 @@ Catalog:
 - Vendor can create/list own products.
 - Vendor cannot modify another vendor's product.
 - Category tree handles parent/child rules.
+- Product create/update persists description, compare-at price, images and scalar attributes; compare-at price must remain greater than selling price.
 
 Inventory:
 
@@ -101,6 +102,7 @@ Frontend:
 - Notification, refund and vendor-coupon pages compile and expose loading/error/empty states.
 - Role-aware navigation exposes only the current actor's workspace, permits customer shop onboarding, and hides protected navigation before session recovery or on cross-workspace access.
 - Product detail route is public; available stock cannot display negative, cart quantity stays within stock, compare-at discount requires valid prices, and nested attributes are not rendered as scalar specs.
+- Vendor product form trims/deduplicates HTTP(S) image URLs and rejects incomplete/duplicate attribute rows; catalog image links preserve their aspect-ratio block.
 
 Operations:
 

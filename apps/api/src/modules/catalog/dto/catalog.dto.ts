@@ -1,11 +1,16 @@
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  ArrayUnique,
+  IsArray,
   IsBoolean,
   IsEnum,
   IsInt,
   IsNumber,
+  IsObject,
   IsOptional,
   IsString,
+  IsUrl,
   MaxLength,
   Min,
   MinLength,
@@ -85,7 +90,26 @@ export class CreateProductDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(5000)
   description?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  compareAtPrice?: number;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(8)
+  @ArrayUnique()
+  @IsUrl({ protocols: ['http', 'https'], require_protocol: true, require_tld: false }, { each: true })
+  @MaxLength(2048, { each: true })
+  images?: string[];
+
+  @IsOptional()
+  @IsObject()
+  attributes?: Record<string, string | number | boolean>;
 
   @IsOptional()
   @IsEnum(ProductStatus)
@@ -147,7 +171,26 @@ export class UpdateProductDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(5000)
   description?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  compareAtPrice?: number | null;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(8)
+  @ArrayUnique()
+  @IsUrl({ protocols: ['http', 'https'], require_protocol: true, require_tld: false }, { each: true })
+  @MaxLength(2048, { each: true })
+  images?: string[];
+
+  @IsOptional()
+  @IsObject()
+  attributes?: Record<string, string | number | boolean>;
 }
 
 export class UpdateProductStatusDto {

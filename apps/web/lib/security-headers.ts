@@ -7,13 +7,15 @@ export function buildSecurityHeaders(options: SecurityHeaderOptions) {
   const apiOrigin = parseOrigin(options.apiUrl);
   const connectSources = ["'self'", apiOrigin];
   if (options.isDevelopment) connectSources.push('ws:', 'wss:');
+  const imageSources = ["'self'", 'blob:', 'data:', 'https:'];
+  if (options.isDevelopment) imageSources.push('http:');
 
   const directives = [
     "default-src 'self'",
     `script-src 'self' 'unsafe-inline'${options.isDevelopment ? " 'unsafe-eval'" : ''}`,
     "script-src-attr 'none'",
     "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' blob: data:",
+    `img-src ${imageSources.join(' ')}`,
     "font-src 'self' data:",
     `connect-src ${connectSources.join(' ')}`,
     "worker-src 'self' blob:",

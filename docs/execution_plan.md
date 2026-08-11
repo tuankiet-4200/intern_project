@@ -1,6 +1,6 @@
 # Execution Plan
 
-Last updated: 2026-08-11
+Last updated: 2026-08-12
 
 This is the implementation source of truth for the build-from-scratch commerce platform. Agents must read this file together with `docs/project_context.md` before editing.
 
@@ -275,6 +275,8 @@ Phase 5F role-aware frontend experience completed:
 - Added Web unit coverage for navigation visibility, customer onboarding access and cross-workspace denial.
 - Added public `/products/[slug]` detail with gallery/fallback, live inventory, quantity/cart action, approved-shop context, reviews and related products; catalog cards now deep-link to it.
 - Added unit coverage for product availability, quantity bounds, valid compare-at discount and safe scalar attributes.
+- Fixed collapsed catalog image cards after the detail-link conversion by preserving a block-level aspect-ratio container.
+- Expanded Vendor product authoring and API validation for description, compare-at price, up to eight image URLs and scalar attributes, while keeping post-create stock changes in Inventory Ledger flows.
 
 Remaining external integration:
 

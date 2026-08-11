@@ -1,6 +1,6 @@
 # Codebase Handbook - Multi-Vendor Commerce Platform
 
-Last updated: 2026-08-11
+Last updated: 2026-08-12
 
 Tài liệu này giải thích code và luồng chạy hiện tại của dự án cho developer mới, đặc biệt là fresher. Đây không phải tài liệu ý tưởng: nội dung bám theo source code đến Phase 5F role-aware frontend completion hiện tại.
 
@@ -850,6 +850,17 @@ Endpoint: `POST /shops/:shopId/products`, role VENDOR.
 
 Ngay cả initial stock bằng 0 vẫn tạo ledger để có dấu vết khởi tạo.
 
+Create DTO và form Vendor hiện nhận:
+
+- `name`, `slug`, active `categoryId`;
+- `price` và optional `compareAtPrice`;
+- `description` tối đa 5.000 ký tự;
+- `images`: tối đa 8 URL HTTP/HTTPS duy nhất, mỗi URL tối đa 2.048 ký tự;
+- `attributes`: object tối đa 20 cặp key/value scalar;
+- `initialStock` và status khởi tạo `DRAFT` từ UI.
+
+Service yêu cầu `compareAtPrice > price` nếu có. Attribute key phải có nội dung và tối đa 60 ký tự; string value tối đa 300 ký tự; nested object/array bị reject. Product fields, Inventory và ledger ban đầu cùng nằm trong một transaction nên lỗi ở bất kỳ bước nào rollback toàn bộ.
+
 ### 12.3 Vendor update/status/archive
 
 - `GET /shops/:shopId/products`: list sản phẩm shop của owner.
@@ -863,6 +874,9 @@ Invariant:
 - Archived product không sửa hoặc reactivate.
 - Không dùng status endpoint để archive; phải dùng archive endpoint để terminal action rõ ràng.
 - Activate chỉ khi shop approved và category active.
+- Edit cho phép name, slug, category, price/compare-at price, description, toàn bộ image order và attributes. Gửi `compareAtPrice=null`, `images=[]` hoặc `attributes={}` để xóa dữ liệu tương ứng.
+- Update price vẫn revalidate với compare-at price hiện tại; không thể tăng price vượt giá gốc mà quên sửa/xóa giá gốc.
+- Product update là một row update sau ownership/status/category/merchandising validation; không sửa Inventory trong endpoint này.
 
 Product status flow:
 
@@ -1653,7 +1667,8 @@ Hai request protected cùng đến lúc memory trống đều await cùng `refre
 
 Production CSP hiện tại:
 
-- chỉ load script/style/font/image/worker theo allowlist;
+- chỉ load script/style/font/worker theo allowlist;
+- ảnh product cho phép HTTPS vì URL do Vendor quản lý; HTTP image chỉ được phép ở development;
 - `connect-src` chỉ cho same-origin và origin rút từ `NEXT_PUBLIC_API_URL`;
 - chặn plugin/object, frame embedding và thay đổi base URL;
 - chặn `unsafe-eval` ở production;
@@ -1805,12 +1820,18 @@ Checkout:
 - Load `/shops/me` và categories.
 - Chọn shop đầu tiên hiện tại.
 - Load vendor products của shop.
-- Create draft product với initial stock.
-- Edit name/price.
+- Create draft product với initial stock, description, price/compare-at price, ảnh và attributes.
+- Edit name, slug, category, description, price/compare-at price, toàn bộ ảnh và attributes.
+- Image editor quản lý tối đa 8 URL có preview; ảnh đầu tiên là cover dùng ở catalog/detail.
+- Attribute editor chuyển rows thành unique key/value object; row thiếu một vế hoặc key trùng bị chặn trước API.
 - Toggle DRAFT/ACTIVE.
 - Archive terminal.
 
-Backend ownership/status rules vẫn bắt buộc; disabled button trên UI không phải security control.
+Backend ownership/status/compare-at/attribute rules vẫn bắt buộc; disabled button trên UI không phải security control. Tồn kho chỉ nhập trong lúc create; mọi adjustment về sau phải đi qua inventory endpoint để luôn có InventoryLedger, không ghép vào product edit.
+
+Hiện form lưu URL ảnh, không upload binary/base64. Upload file trực tiếp cần object storage/CDN, signed upload, MIME/size scanning và lifecycle policy; không nên ghi file vào filesystem container hoặc JSON database. CSP cho HTTPS image có nghĩa browser có thể gửi request tới origin ảnh do Vendor nhập, vì vậy production nên chuyển sang CDN origin được quản lý khi chọn storage provider.
+
+Integration test catalog kiểm tra create/update mọi merchandising field, ownership, compare-at validation và archive terminal. Web helper test kiểm tra URL trim/dedupe/protocol/reorder cùng attribute completeness/uniqueness/scalar restoration. Catalog card image link bắt buộc là block-level để `aspect-ratio` không collapse; đây là regression guard cần giữ khi đổi wrapper interactive.
 
 ### 22.10 `/vendor/orders`
 

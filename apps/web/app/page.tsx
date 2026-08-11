@@ -211,7 +211,7 @@ function ProductCard({ product, index, adding, onAdd }: { product: Product; inde
       <Link
         href={`/products/${product.slug}`}
         aria-label={`Xem chi tiết ${product.name}`}
-        className={`relative aspect-[4/3] overflow-hidden bg-gradient-to-br ${gradients[index % gradients.length]} bg-cover bg-center p-4`}
+        className={`relative block aspect-[4/3] overflow-hidden bg-gradient-to-br ${gradients[index % gradients.length]} bg-cover bg-center p-4`}
         style={image ? { backgroundImage: `url(${JSON.stringify(image)})` } : undefined}
       >
         <span className="absolute left-4 top-4 rounded-full bg-white/85 px-2.5 py-1 text-[11px] font-bold text-[#315248] shadow-sm backdrop-blur">{product.category.name}</span>

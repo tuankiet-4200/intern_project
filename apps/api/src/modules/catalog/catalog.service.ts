@@ -163,6 +163,7 @@ export class CatalogService {
     const category = await this.prisma.category.findUnique({ where: { id: dto.categoryId } });
     if (!category) throw new NotFoundException('Category not found');
     if (!category.isActive) throw new BadRequestException('Category is inactive');
+    this.assertValidProductMerchandising(dto.price, dto.compareAtPrice, dto.attributes);
 
     return this.prisma.$transaction(async (tx) => {
       const product = await tx.product.create({
@@ -173,6 +174,9 @@ export class CatalogService {
           slug: dto.slug,
           description: dto.description,
           price: dto.price,
+          compareAtPrice: dto.compareAtPrice,
+          images: dto.images ?? [],
+          attributes: dto.attributes,
           status: dto.status ?? ProductStatus.DRAFT,
         },
       });
@@ -211,6 +215,11 @@ export class CatalogService {
       throw new BadRequestException('Archived product cannot be edited');
     }
     if (dto.categoryId !== undefined) await this.assertActiveCategory(dto.categoryId);
+    this.assertValidProductMerchandising(
+      dto.price ?? Number(product.price),
+      dto.compareAtPrice === undefined ? (product.compareAtPrice ? Number(product.compareAtPrice) : undefined) : dto.compareAtPrice,
+      dto.attributes,
+    );
 
     return this.prisma.product.update({
       where: { id: productId },
@@ -220,6 +229,9 @@ export class CatalogService {
         categoryId: dto.categoryId,
         price: dto.price,
         description: dto.description,
+        compareAtPrice: dto.compareAtPrice,
+        images: dto.images,
+        attributes: dto.attributes,
       },
       include: { inventory: true, category: true },
     });
@@ -264,6 +276,28 @@ export class CatalogService {
     if (!product) throw new NotFoundException('Product not found');
     if (product.shop.ownerId !== ownerId) throw new ForbiddenException('Not your product');
     return product;
+  }
+
+  private assertValidProductMerchandising(
+    price: number,
+    compareAtPrice?: number | null,
+    attributes?: Record<string, string | number | boolean>,
+  ) {
+    if (compareAtPrice !== undefined && compareAtPrice !== null && compareAtPrice <= price) {
+      throw new BadRequestException('Compare-at price must be greater than price');
+    }
+    if (!attributes) return;
+    const entries = Object.entries(attributes);
+    if (entries.length > 20) throw new BadRequestException('Product supports at most 20 attributes');
+    for (const [key, value] of entries) {
+      if (!key.trim() || key.length > 60) throw new BadRequestException('Attribute key must be 1-60 characters');
+      if (!['string', 'number', 'boolean'].includes(typeof value)) {
+        throw new BadRequestException('Attribute values must be text, number, or boolean');
+      }
+      if (typeof value === 'string' && value.length > 300) {
+        throw new BadRequestException('Attribute value must be at most 300 characters');
+      }
+    }
   }
 
   private async assertCategoryExists(categoryId: number) {
