@@ -1,6 +1,6 @@
 # Testing Strategy
 
-Last updated: 2026-07-15
+Last updated: 2026-08-11
 
 ## Testing Pyramid
 
@@ -60,6 +60,8 @@ Payment:
 - Payment amount must match order amount.
 - COD and bank transfer flows remain separate from fulfillment.
 - Refund records do not mutate historical payment records silently.
+- COD refund requires explicit offline confirmation and updates partial/full summary atomically.
+- Bank-transfer refund remains pending until a valid signed callback.
 
 Coupon:
 
@@ -67,6 +69,15 @@ Coupon:
 - Used campaign economic terms cannot be rewritten.
 - Quote and commit enforce global and per-customer limits.
 - Competing checkout cannot create usage beyond a per-customer limit.
+- Vendor cannot create global coupons or mutate another vendor's campaign.
+- Discovery hides inactive, expired, exhausted and account-exhausted campaigns.
+
+Notifications:
+
+- Business transaction and outbox event commit or roll back together.
+- Two workers cannot create duplicate inbox rows for one outbox event.
+- Invalid event payload becomes FAILED without blocking valid events.
+- Inbox list/read operations are scoped to current user.
 
 Infrastructure/request protection:
 
@@ -87,6 +98,15 @@ Frontend:
 - Concurrent protected requests share one refresh call.
 - A late refresh response cannot restore memory state after logout/session clear.
 - Production CSP allows only the configured API connection origin and blocks object/frame embedding.
+- Notification, refund and vendor-coupon pages compile and expose loading/error/empty states.
+
+Operations:
+
+- Production dependency audit has no high/critical advisory.
+- API/Web Docker images build from the repository root.
+- Runtime smoke validates readiness body and security headers.
+- Bounded load smoke has no failures and remains under the configured p95 threshold.
+- Backup restore uses a distinct target and verifies restored migration/business row counts.
 
 ## Default Commands
 
@@ -104,6 +124,9 @@ Workspace-specific examples:
 npm run test -w @intern-project/api
 npm run build -w @intern-project/api
 npm run build -w @intern-project/web
+npm audit --omit=dev --audit-level=high
+npm run smoke:api
+npm run load:smoke
 ```
 
 ## When Tests Cannot Run

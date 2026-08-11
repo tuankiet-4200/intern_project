@@ -1,6 +1,6 @@
 # Project Context
 
-Last updated: 2026-08-05
+Last updated: 2026-08-11
 
 ## Project Identity
 
@@ -176,6 +176,19 @@ Phase 5D session lifecycle and browser hardening:
 - Added Web CSP/security headers with an allowlisted API origin and unit coverage for production policy construction.
 - Added a Web Jest suite and CI Web unit-test step.
 
+Phase 5E provider-neutral completion:
+
+- Added durable `OutboxEvent` and `Notification` records plus migration `20260805225335_phase5_notifications_outbox`.
+- Enqueued notifications inside the same transactions as shop review, checkout, fulfillment, cancellation, payment and refund state changes.
+- Added an idempotent, multi-replica-safe outbox worker using `FOR UPDATE SKIP LOCKED`, unique delivery keys and failed-payload quarantine.
+- Added user-scoped inbox/unread/mark-read APIs and connected `/notifications` UI.
+- Added admin payment listing and `/admin/refunds`; bank transfer remains provider-pending while COD requires explicit offline confirmation and settles atomically.
+- Exposed refund status safely on customer-owned order detail.
+- Added vendor coupon ownership APIs/UI and authenticated customer coupon discovery/application.
+- Extended commerce/coupon/payment/notification integration and e2e coverage.
+- Added non-root API/Web Dockerfiles, smoke/load scripts, guarded backup/restore drill, scheduled operational drill and provider-neutral staging release workflow.
+- Upgraded Next.js to 16.3.0; `npm audit --omit=dev` reports zero vulnerabilities.
+
 Governance/context:
 
 - Added `.agents/senior-tech-lead.rules.md`.
@@ -254,24 +267,32 @@ Verified:
 - Root API/Web lint, API production build and Web production build with 16 static routes passed after Phase 5D.
 - Web production runtime smoke returned the configured CSP/COOP/Permissions/Referrer/nosniff/frame headers and no `X-Powered-By` header.
 - Browser hydration/console smoke could not run because no in-app/Chrome browser instance was available; production build, HTTP runtime smoke and unit tests passed.
+- Migration `20260805225335_phase5_notifications_outbox` applied and Prisma Client regenerated.
+- Notification integration passed: 1 suite, 3 tests for idempotent delivery, read ownership, invalid-payload quarantine and deleted-recipient quarantine.
+- Coupon/payment focused integration passed: 2 suites, 3 tests including vendor ownership/discovery and COD partial/full refund.
+- Commerce e2e passed with persisted shop/order/status notifications and read-all verification.
+- Final API unit/integration regression passed: 17 suites, 35 tests.
+- Final HTTP E2E regression passed: 3 suites, 4 tests with no outbox worker errors.
+- Web production build passed on Next.js 16.3.0 with 19 static routes including notifications, refunds and vendor coupons.
+- API and Web production Docker images built successfully; API Prisma generation detected OpenSSL correctly.
+- Final API image uses production-only dependencies, explicitly generates Prisma Client and reports zero image-stage vulnerabilities; runtime smoke passed for liveness/readiness/products/security headers.
+- Bounded 500-request/25-concurrency load smoke passed with zero failures and p95 23 ms on the local machine.
+- Guarded backup/restore drill passed against an isolated local restore database: 6 migrations and 6 user rows matched the source; the temporary database was removed afterward.
+- Production dependency audit passed with zero vulnerabilities.
 
 ## Current Risks / Gaps
 
 - Bank transfer has a signed provider-neutral webhook, but a provider-specific payload adapter/API reconciliation job is still pending.
-- Refund API/state/audit are implemented for bank transfer, but admin/customer refund UI and COD refund policy are still pending.
-- Coupon administration and per-user limits are implemented; vendor self-service campaigns and customer coupon discovery remain pending.
 - Redis is now a critical API dependency when `RATE_LIMIT_FAILURE_MODE=closed`; production needs managed Redis high availability, capacity monitoring and an intentional outage policy.
-- CI is implemented, but provider-specific CD and a real staging deployment/restore drill are still pending.
-- Polling provides order updates, but there is no persisted notification inbox or event delivery yet.
+- Repository CD/drill automation is implemented, but real staging execution still needs the chosen hosting/database, GitHub Environment URL/secrets and rollout webhook.
+- Notification inbox is persisted and transactionally reliable; external email/push delivery is not part of the current product scope.
 - Access tokens are memory-only and refresh sessions are cleaned after retention; active-page XSS can still access runtime state, so CSP must remain restrictive and third-party scripts require security review.
 - The static Turbopack-compatible CSP still requires `script-src 'unsafe-inline'`; strict nonce/SRI CSP is deferred until Next.js supports a stable Turbopack/static-generation path or the project accepts dynamic rendering/webpack trade-offs.
-- `npm audit --omit=dev` still reports high advisories through transitive Next.js/PostCSS/Sharp dependencies; npm does not currently offer a non-breaking automatic remediation for the installed release line.
+- Browser hydration/console QA could not run in this session because browser discovery returned no available browser; production build, HTTP/container runtime smoke and automated tests remain green.
 
 ## Next Recommended Step
 
-The planned Phase 1-4 roadmap is complete. Recommended post-roadmap priorities:
+The agreed provider-neutral application scope is complete. Remaining follow-up depends on external choices/access:
 
-1. Add the selected bank-transfer provider adapter/reconciliation job and refund UI.
-2. Add vendor coupon self-service/customer discovery only after defining moderation rules.
-3. Add persisted notifications/outbox after defining delivery semantics.
-4. Deploy to staging, run backup/restore, load and rollback drills, then connect provider-specific CD.
+1. Select and integrate the bank-transfer provider adapter/reconciliation job.
+2. Configure staging environment secrets/URLs and execute the supplied staging/backup/restore/load/rollback workflows on real infrastructure.

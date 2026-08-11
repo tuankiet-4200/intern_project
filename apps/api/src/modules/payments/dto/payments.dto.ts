@@ -1,12 +1,17 @@
-import { PaymentStatus, PaymentWebhookType } from '@prisma/client';
+import { PaymentMethod, PaymentStatus, PaymentWebhookType } from '@prisma/client';
+import { Type } from 'class-transformer';
 import {
+  IsBoolean,
   IsEnum,
+  IsInt,
   IsOptional,
   IsString,
   IsUUID,
   Length,
   Matches,
   MaxLength,
+  Max,
+  Min,
 } from 'class-validator';
 
 const MONEY_PATTERN = /^\d{1,10}(\.\d{1,2})?$/;
@@ -34,6 +39,31 @@ export class CreateRefundDto {
   @IsString()
   @MaxLength(500)
   reason?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  confirmOfflineRefund?: boolean;
+}
+
+export class PaymentQueryDto {
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page = 1;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit = 50;
+
+  @IsOptional()
+  @IsEnum(PaymentStatus)
+  status?: PaymentStatus;
+
+  @IsOptional()
+  @IsEnum(PaymentMethod)
+  method?: PaymentMethod;
 }
 
 export class BankTransferWebhookDto {

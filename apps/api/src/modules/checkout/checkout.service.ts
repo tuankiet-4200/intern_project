@@ -3,6 +3,7 @@ import {
   CouponScope,
   CouponType,
   InventoryReason,
+  NotificationType,
   PaymentStatus,
   Prisma,
   ProductStatus,
@@ -10,6 +11,7 @@ import {
 } from '@prisma/client';
 import { createHash, randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
+import { OutboxService } from '../notifications/outbox.service';
 import { CheckoutCommitDto, CheckoutQuoteDto } from './dto/checkout.dto';
 
 type DbClient = PrismaService | Prisma.TransactionClient;
@@ -28,7 +30,10 @@ const ORDER_INCLUDE = {
 export class CheckoutService {
   private static readonly MAX_TRANSACTION_ATTEMPTS = 3;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly outbox?: OutboxService,
+  ) {}
 
   async quote(userId: string, dto: CheckoutQuoteDto) {
     const pricing = await this.priceCart(this.prisma, userId, dto.couponCode);
@@ -79,7 +84,7 @@ export class CheckoutService {
             });
 
             for (const group of pricing.groups) {
-              await tx.shopOrder.create({
+              const shopOrder = await tx.shopOrder.create({
                 data: {
                   parentOrderId: parentOrder.id,
                   shopId: group.shop.id,
@@ -98,6 +103,15 @@ export class CheckoutService {
                     })),
                   },
                 },
+              });
+              if (this.outbox) await this.outbox.enqueue(tx, {
+                userId: group.shop.ownerId,
+                type: NotificationType.NEW_SHOP_ORDER,
+                title: 'New shop order',
+                message: `Order ${parentOrder.orderNumber} is waiting for confirmation in ${group.shop.name}.`,
+                data: { parentOrderId: parentOrder.id, shopOrderId: shopOrder.id, orderNumber: parentOrder.orderNumber },
+                aggregateType: 'ShopOrder',
+                aggregateId: shopOrder.id,
               });
             }
 
@@ -149,6 +163,16 @@ export class CheckoutService {
 
             await tx.cartItem.deleteMany({
               where: { id: { in: pricing.items.map((item) => item.id) } },
+            });
+
+            if (this.outbox) await this.outbox.enqueue(tx, {
+              userId,
+              type: NotificationType.ORDER_PLACED,
+              title: 'Order placed',
+              message: `Order ${parentOrder.orderNumber} was created successfully.`,
+              data: { parentOrderId: parentOrder.id, orderNumber: parentOrder.orderNumber },
+              aggregateType: 'ParentOrder',
+              aggregateId: parentOrder.id,
             });
 
             return tx.parentOrder.findUniqueOrThrow({
@@ -217,7 +241,7 @@ export class CheckoutService {
           include: {
             product: {
               include: {
-                shop: { select: { id: true, name: true, slug: true, status: true } },
+                shop: { select: { id: true, name: true, slug: true, status: true, ownerId: true } },
                 inventory: true,
               },
             },
@@ -328,7 +352,7 @@ export class CheckoutService {
         shop: item.product.shop,
       })),
       shops: pricing.groups.map((group) => ({
-        shop: group.shop,
+        shop: { id: group.shop.id, name: group.shop.name, slug: group.shop.slug, status: group.shop.status },
         subtotal: group.subtotal,
         discount: group.discount,
         shipping: group.shipping,

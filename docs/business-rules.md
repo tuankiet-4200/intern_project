@@ -40,6 +40,8 @@
 - COD: payment pending cho toi khi delivered/collected.
 - Bank transfer/SePay: chi mark paid khi webhook/confirm hop le va amount khop.
 - Refund la transaction rieng, khong sua nguoc payment record cu.
+- Bank-transfer refund cho callback provider hop le; COD refund chi thanh cong ngay khi admin xac nhan da hoan tien offline.
+- Tong Refund `SUCCEEDED` khong duoc vuot Payment amount; moi transition co append-only history.
 
 ## Status Transitions
 
@@ -66,6 +68,15 @@ Payment:
 - Campaign co the gioi han tong luot va luot theo tung customer; quote va commit deu phai kiem tra lai.
 - Usage duoc ghi khi checkout thanh cong, can unique theo coupon/user/order tuy campaign.
 - Khong doi code/scope/shop/type/value sau khi da co usage; deactivate thay vi xoa campaign da dung.
+- Vendor chi tao/sua coupon scope SHOP cua shop APPROVED do minh so huu; chi ADMIN quan ly GLOBAL coupon.
+- Customer discovery chi hien campaign active, dung schedule, con tong luot va con luot cua account; checkout van revalidate cart.
+
+## Notification
+
+- Business mutation va notification request phai commit cung transaction qua outbox.
+- Moi outbox event chi tao mot inbox notification; worker retry khong duoc duplicate.
+- User chi doc/mark-read notification cua chinh minh.
+- Payload notification khong chua secret, token hoac raw payment webhook data.
 
 ## Review
 

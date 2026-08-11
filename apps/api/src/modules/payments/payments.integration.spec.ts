@@ -191,6 +191,77 @@ describe('Payment webhook and refund integration', () => {
       await prisma.$disconnect();
     }
   });
+
+  it('requires explicit offline confirmation and records partial/full COD refunds atomically', async () => {
+    const prisma = new PrismaService();
+    const service = new PaymentsService(prisma);
+    const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const [customer, admin] = await Promise.all([
+      prisma.user.create({
+        data: { email: `cod-refund-customer-${suffix}@example.com`, passwordHash: 'test', fullName: 'COD Customer' },
+      }),
+      prisma.user.create({
+        data: { email: `cod-refund-admin-${suffix}@example.com`, passwordHash: 'test', fullName: 'COD Admin', role: UserRole.ADMIN },
+      }),
+    ]);
+    const order = await prisma.parentOrder.create({
+      data: {
+        userId: customer.id,
+        orderNumber: `COD-REFUND-${suffix}`,
+        subtotalAmount: 1000,
+        totalAmount: 1000,
+        paymentStatus: PaymentStatus.PAID,
+        shippingAddress: { recipient: 'COD Customer' },
+        payments: { create: { method: PaymentMethod.COD, amount: 1000, status: PaymentStatus.PAID, paidAt: new Date() } },
+      },
+      include: { payments: true },
+    });
+    const payment = order.payments[0];
+
+    try {
+      await expect(service.createRefund(admin.id, payment.id, {
+        amount: '400.00', idempotencyKey: `cod-partial-${suffix}`,
+      })).rejects.toThrow('explicit confirmation');
+      const partial = await service.createRefund(admin.id, payment.id, {
+        amount: '400.00',
+        idempotencyKey: `cod-partial-${suffix}`,
+        reason: 'Cash returned at service desk',
+        confirmOfflineRefund: true,
+      });
+      expect(partial.status).toBe(RefundStatus.SUCCEEDED);
+      expect(partial.provider).toBeNull();
+      expect(partial.refundedAt).toBeInstanceOf(Date);
+      expect((await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } })).status)
+        .toBe(PaymentStatus.PARTIALLY_REFUNDED);
+      await expect(service.createRefund(admin.id, payment.id, {
+        amount: '400.00',
+        idempotencyKey: `cod-partial-${suffix}`,
+        reason: 'Cash returned at service desk',
+      })).rejects.toThrow('explicit confirmation');
+      const partialRetry = await service.createRefund(admin.id, payment.id, {
+        amount: '400.00',
+        idempotencyKey: `cod-partial-${suffix}`,
+        reason: 'Cash returned at service desk',
+        confirmOfflineRefund: true,
+      });
+      expect(partialRetry.id).toBe(partial.id);
+
+      const completed = await service.createRefund(admin.id, payment.id, {
+        amount: '600.00',
+        idempotencyKey: `cod-final-${suffix}`,
+        confirmOfflineRefund: true,
+      });
+      expect(completed.status).toBe(RefundStatus.SUCCEEDED);
+      expect((await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } })).status)
+        .toBe(PaymentStatus.REFUNDED);
+      expect((await prisma.parentOrder.findUniqueOrThrow({ where: { id: order.id } })).paymentStatus)
+        .toBe(PaymentStatus.REFUNDED);
+    } finally {
+      await prisma.parentOrder.delete({ where: { id: order.id } });
+      await prisma.user.deleteMany({ where: { id: { in: [customer.id, admin.id] } } });
+      await prisma.$disconnect();
+    }
+  });
 });
 
 async function sendWebhook(

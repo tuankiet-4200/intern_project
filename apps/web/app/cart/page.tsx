@@ -26,11 +26,24 @@ type Address = {
   isDefault: boolean;
 };
 type Quote = { subtotal: string; discount: string; shipping: string; total: string };
+type AvailableCoupon = {
+  id: string;
+  code: string;
+  scope: 'GLOBAL' | 'SHOP';
+  type: 'PERCENTAGE' | 'FIXED_AMOUNT';
+  value: string;
+  minOrderAmount: string | null;
+  maxDiscount: string | null;
+  expiresAt: string | null;
+  accountRemaining: number | null;
+  shop: { name: string } | null;
+};
 
 export default function CartPage() {
   const router = useRouter();
   const [cart, setCart] = useState<Cart | null>(null);
   const [addresses, setAddresses] = useState<Address[]>([]);
+  const [availableCoupons, setAvailableCoupons] = useState<AvailableCoupon[]>([]);
   const [addressId, setAddressId] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<'COD' | 'BANK_TRANSFER'>('COD');
   const [couponCode, setCouponCode] = useState('');
@@ -45,12 +58,14 @@ export default function CartPage() {
     setLoading(true);
     setError('');
     try {
-      const [cartResult, addressResult] = await Promise.all([
+      const [cartResult, addressResult, couponResult] = await Promise.all([
         apiRequest<Cart>('/cart', {}, true),
         apiRequest<Address[]>('/users/me/addresses', {}, true),
+        apiRequest<AvailableCoupon[]>('/coupons/available', {}, true),
       ]);
       setCart(cartResult);
       setAddresses(addressResult);
+      setAvailableCoupons(couponResult);
       setAddressId((current) => current || addressResult.find((address) => address.isDefault)?.id || addressResult[0]?.id || '');
       setQuote(cartResult.items.length ? await apiRequest<Quote>('/checkout/quote', { method: 'POST', body: '{}' }, true) : null);
     } catch (requestError) {
@@ -180,6 +195,40 @@ export default function CartPage() {
               <input className="h-10 min-w-0 flex-1 rounded border border-[var(--line)] px-3" value={couponCode} onChange={(event) => setCouponCode(event.target.value)} placeholder="Coupon code" />
               <button type="button" className="rounded border border-[var(--line)] px-3 text-sm" onClick={() => void applyCoupon()}>Apply</button>
             </div>
+            {availableCoupons.length ? (
+              <div className="grid max-h-44 gap-2 overflow-y-auto rounded border border-[var(--line)] bg-gray-50 p-2">
+                <p className="text-xs font-medium text-[var(--muted)]">Available coupons</p>
+                {availableCoupons.map((coupon) => (
+                  <button
+                    key={coupon.id}
+                    type="button"
+                    className="rounded border border-[var(--line)] bg-white p-2 text-left text-xs hover:border-[var(--accent)]"
+                    onClick={() => {
+                      setCouponCode(coupon.code);
+                      void (async () => {
+                        setError('');
+                        try {
+                          setQuote(await apiRequest<Quote>('/checkout/quote', {
+                            method: 'POST',
+                            body: JSON.stringify({ couponCode: coupon.code }),
+                          }, true));
+                          setAppliedCoupon(coupon.code);
+                        } catch (requestError) {
+                          setError(requestError instanceof Error ? requestError.message : 'Coupon is not valid for this cart');
+                        }
+                      })();
+                    }}
+                  >
+                    <strong>{coupon.code}</strong> · {coupon.type === 'PERCENTAGE' ? `${coupon.value}%` : formatVnd(coupon.value)}
+                    {coupon.shop ? ` · ${coupon.shop.name}` : ' · all shops'}
+                    <span className="block text-[var(--muted)]">
+                      Minimum {coupon.minOrderAmount ? formatVnd(coupon.minOrderAmount) : 'none'}
+                      {coupon.expiresAt ? ` · expires ${new Date(coupon.expiresAt).toLocaleDateString()}` : ''}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
             {appliedCoupon ? <p className="text-xs text-emerald-700">Applied: {appliedCoupon}</p> : null}
             {quote ? (
               <dl className="grid gap-2 border-t border-[var(--line)] pt-3 text-sm">

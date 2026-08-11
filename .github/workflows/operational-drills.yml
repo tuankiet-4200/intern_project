@@ -1,0 +1,93 @@
+name: Operational drills
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '30 2 * * 1'
+
+concurrency:
+  group: operational-drills
+  cancel-in-progress: false
+
+jobs:
+  drill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: intern_project
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d intern_project"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/intern_project?schema=public
+      JWT_ACCESS_SECRET: drill-only-access-secret
+      JWT_ACCESS_TTL: 15m
+      FRONTEND_URL: http://localhost:3000
+      RATE_LIMIT_MAX: 1000
+      RATE_LIMIT_WINDOW_MS: 60000
+      RATE_LIMIT_STORE: redis
+      RATE_LIMIT_FAILURE_MODE: closed
+      REDIS_URL: redis://localhost:6379
+      API_BASE_URL: http://localhost:3005/api
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Install PostgreSQL client tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client
+      - run: npm run prisma:generate -w @intern-project/api
+      - name: Prepare drill data
+        working-directory: apps/api
+        run: |
+          npx prisma migrate deploy
+          npx prisma db seed
+      - run: npm run build -w @intern-project/api
+      - name: API smoke and bounded load
+        run: |
+          npm run start -w @intern-project/api > /tmp/intern-project-api.log 2>&1 &
+          api_pid=$!
+          trap 'kill "${api_pid}"' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --silent --fail http://localhost:3005/api/health > /dev/null; then break; fi
+            if [[ "${attempt}" == "30" ]]; then cat /tmp/intern-project-api.log; exit 1; fi
+            sleep 1
+          done
+          npm run smoke:api
+          LOAD_REQUESTS=500 LOAD_CONCURRENCY=25 LOAD_MAX_P95_MS=1000 npm run load:smoke
+      - name: Backup and restore drill
+        env:
+          SOURCE_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/intern_project
+          RESTORE_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/intern_project_restore
+          BACKUP_RESTORE_CONFIRM: restore-target-may-be-overwritten
+        run: |
+          createdb --host=localhost --username=postgres intern_project_restore
+          npm run drill:backup-restore
+      - name: Build deployable images
+        run: |
+          docker build -f apps/api/Dockerfile -t intern-project-api:drill .
+          docker build -f apps/web/Dockerfile --build-arg NEXT_PUBLIC_API_URL=http://localhost:3005/api -t intern-project-web:drill .

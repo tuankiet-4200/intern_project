@@ -1,14 +1,21 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { InventoryReason, ParentOrderStatus, PaymentStatus, Prisma, ShopOrderStatus } from '@prisma/client';
+import { InventoryReason, NotificationType, ParentOrderStatus, PaymentStatus, Prisma, ShopOrderStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ShopsService } from '../shops/shops.service';
+import { OutboxService } from '../notifications/outbox.service';
 
 const ORDER_INCLUDE = {
   shopOrders: {
     orderBy: { createdAt: 'asc' as const },
     include: { shop: { select: { id: true, name: true, slug: true } }, items: true },
   },
-  payments: { orderBy: { createdAt: 'asc' as const }, include: { statusHistory: true } },
+  payments: {
+    orderBy: { createdAt: 'asc' as const },
+    include: {
+      statusHistory: true,
+      refunds: { include: { statusHistory: { orderBy: { createdAt: 'asc' as const } } }, orderBy: { createdAt: 'desc' as const } },
+    },
+  },
   couponUsages: { include: { coupon: { select: { code: true, scope: true, type: true } } } },
 } as const;
 
@@ -38,6 +45,7 @@ export class OrdersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly shops: ShopsService,
+    private readonly outbox?: OutboxService,
   ) {}
 
   listMine(userId: string) {
@@ -61,7 +69,7 @@ export class OrdersService {
     return this.prisma.$transaction(async (tx) => {
       const order = await tx.parentOrder.findFirst({
         where: { id: orderId, userId },
-        include: { shopOrders: { include: { items: true } } },
+        include: { shopOrders: { include: { items: true, shop: { select: { ownerId: true, name: true } } } } },
       });
       if (!order) throw new NotFoundException('Order not found');
       if (order.status !== ParentOrderStatus.PLACED) throw new BadRequestException('Order cannot be cancelled');
@@ -76,8 +84,26 @@ export class OrdersService {
         if (shopOrder.status === ShopOrderStatus.CANCELLED) continue;
         await this.releaseInventory(tx, order.id, shopOrder.items);
         await tx.shopOrder.update({ where: { id: shopOrder.id }, data: { status: ShopOrderStatus.CANCELLED } });
+        if (this.outbox) await this.outbox.enqueue(tx, {
+          userId: shopOrder.shop.ownerId,
+          type: NotificationType.ORDER_CANCELLED,
+          title: 'Customer cancelled an order',
+          message: `Order ${order.orderNumber} for ${shopOrder.shop.name} was cancelled by the customer.`,
+          data: { parentOrderId: order.id, shopOrderId: shopOrder.id, orderNumber: order.orderNumber },
+          aggregateType: 'ShopOrder',
+          aggregateId: shopOrder.id,
+        });
       }
       await tx.parentOrder.update({ where: { id: order.id }, data: { status: ParentOrderStatus.CANCELLED } });
+      if (this.outbox) await this.outbox.enqueue(tx, {
+        userId,
+        type: NotificationType.ORDER_CANCELLED,
+        title: 'Order cancelled',
+        message: `Order ${order.orderNumber} was cancelled.`,
+        data: { parentOrderId: order.id, orderNumber: order.orderNumber },
+        aggregateType: 'ParentOrder',
+        aggregateId: order.id,
+      });
       return tx.parentOrder.findUniqueOrThrow({ where: { id: order.id }, include: ORDER_INCLUDE });
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
@@ -100,7 +126,11 @@ export class OrdersService {
     return this.prisma.$transaction(async (tx) => {
       const shopOrder = await tx.shopOrder.findUnique({
         where: { id: shopOrderId },
-        include: { shop: true, items: true },
+        include: {
+          shop: true,
+          items: true,
+          parentOrder: { select: { id: true, userId: true, orderNumber: true } },
+        },
       });
       if (!shopOrder) throw new NotFoundException('Shop order not found');
       if (shopOrder.shop.ownerId !== ownerId) throw new ForbiddenException('Not your shop order');
@@ -121,6 +151,22 @@ export class OrdersService {
       }
 
       await this.updateParentStatus(tx, shopOrder.parentOrderId);
+      if (this.outbox) await this.outbox.enqueue(tx, {
+        userId: shopOrder.parentOrder.userId,
+        type: nextStatus === ShopOrderStatus.CANCELLED
+          ? NotificationType.ORDER_CANCELLED
+          : NotificationType.SHOP_ORDER_STATUS_CHANGED,
+        title: nextStatus === ShopOrderStatus.CANCELLED ? 'Shop order cancelled' : 'Order status updated',
+        message: `${shopOrder.shop.name} changed order ${shopOrder.parentOrder.orderNumber} to ${nextStatus}.`,
+        data: {
+          parentOrderId: shopOrder.parentOrder.id,
+          shopOrderId: shopOrder.id,
+          orderNumber: shopOrder.parentOrder.orderNumber,
+          status: nextStatus,
+        },
+        aggregateType: 'ShopOrder',
+        aggregateId: shopOrder.id,
+      });
       return tx.shopOrder.findUniqueOrThrow({
         where: { id: shopOrder.id },
         include: { items: true, parentOrder: true },

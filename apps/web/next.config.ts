@@ -1,7 +1,10 @@
 import type { NextConfig } from 'next';
+import path from 'node:path';
 import { buildSecurityHeaders } from './lib/security-headers';
 
 const nextConfig: NextConfig = {
+  output: 'standalone',
+  outputFileTracingRoot: path.join(process.cwd(), '../..'),
   poweredByHeader: false,
   async headers() {
     return [{

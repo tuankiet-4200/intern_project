@@ -9,6 +9,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import {
   PaymentMethod,
+  NotificationType,
   PaymentStatus,
   PaymentWebhookType,
   Prisma,
@@ -16,9 +17,11 @@ import {
 } from '@prisma/client';
 import { createHash, createHmac, timingSafeEqual } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
+import { OutboxService } from '../notifications/outbox.service';
 import {
   BankTransferWebhookDto,
   CreateRefundDto,
+  PaymentQueryDto,
   UpdatePaymentStatusDto,
 } from './dto/payments.dto';
 
@@ -42,11 +45,41 @@ export class PaymentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService = new ConfigService(),
+    private readonly outbox?: OutboxService,
   ) {}
+
+  async listForAdmin(query: PaymentQueryDto) {
+    const where: Prisma.PaymentWhereInput = { status: query.status, method: query.method };
+    const [data, total] = await Promise.all([
+      this.prisma.payment.findMany({
+        where,
+        include: {
+          parentOrder: {
+            select: {
+              id: true,
+              orderNumber: true,
+              totalAmount: true,
+              user: { select: { id: true, email: true, fullName: true } },
+            },
+          },
+          refunds: { include: { statusHistory: { orderBy: { createdAt: 'asc' } } }, orderBy: { createdAt: 'desc' } },
+          statusHistory: { orderBy: { createdAt: 'asc' } },
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip: (query.page - 1) * query.limit,
+        take: query.limit,
+      }),
+      this.prisma.payment.count({ where }),
+    ]);
+    return { data, total, page: query.page, limit: query.limit };
+  }
 
   async updateStatus(actorId: string, paymentId: string, dto: UpdatePaymentStatusDto) {
     return this.prisma.$transaction(async (tx) => {
-      const payment = await tx.payment.findUnique({ where: { id: paymentId } });
+      const payment = await tx.payment.findUnique({
+        where: { id: paymentId },
+        include: { parentOrder: { select: { id: true, userId: true, orderNumber: true } } },
+      });
       if (!payment) throw new NotFoundException('Payment not found');
       if (!PAYMENT_TRANSITIONS[payment.status].includes(dto.status)) {
         throw new BadRequestException(`Invalid payment transition: ${payment.status} -> ${dto.status}`);
@@ -70,6 +103,17 @@ export class PaymentsService {
         where: { id: payment.parentOrderId },
         data: { paymentStatus: dto.status },
       });
+      if (this.outbox) {
+        await this.outbox.enqueue(tx, {
+          userId: payment.parentOrder.userId,
+          type: NotificationType.PAYMENT_STATUS_CHANGED,
+          title: 'Payment status updated',
+          message: `Payment for order ${payment.parentOrder.orderNumber} is now ${dto.status}.`,
+          data: { parentOrderId: payment.parentOrder.id, paymentId: payment.id, status: dto.status },
+          aggregateType: 'Payment',
+          aggregateId: payment.id,
+        });
+      }
       return tx.payment.findUniqueOrThrow({
         where: { id: payment.id },
         include: { statusHistory: { orderBy: { createdAt: 'asc' } } },
@@ -85,6 +129,13 @@ export class PaymentsService {
 
     try {
       return await this.withSerializableRetry(async (tx) => {
+        const payment = await tx.payment.findUnique({
+          where: { id: paymentId },
+          include: { parentOrder: { select: { id: true, userId: true, orderNumber: true } } },
+        });
+        if (!payment) throw new NotFoundException('Payment not found');
+        const offlineRefund = this.assertRefundChannelConfirmation(payment.method, dto.confirmOfflineRefund);
+
         const existing = await tx.refund.findUnique({
           where: { paymentId_idempotencyKey: { paymentId, idempotencyKey } },
           include: { statusHistory: { orderBy: { createdAt: 'asc' } } },
@@ -92,12 +143,6 @@ export class PaymentsService {
         if (existing) {
           this.assertMatchingRefundRequest(existing, amount, reason);
           return existing;
-        }
-
-        const payment = await tx.payment.findUnique({ where: { id: paymentId } });
-        if (!payment) throw new NotFoundException('Payment not found');
-        if (payment.method !== PaymentMethod.BANK_TRANSFER) {
-          throw new BadRequestException('Provider-backed refunds currently support bank transfer payments only');
         }
         if (payment.status !== PaymentStatus.PAID && payment.status !== PaymentStatus.PARTIALLY_REFUNDED) {
           throw new BadRequestException(`Payment in ${payment.status} cannot be refunded`);
@@ -113,9 +158,15 @@ export class PaymentsService {
           throw new BadRequestException(`Refund amount exceeds remaining refundable amount ${remainingAmount.toFixed(2)}`);
         }
 
+        const nextPaymentStatus = offlineRefund
+          ? refundedAmount.add(amount).equals(payment.amount)
+            ? PaymentStatus.REFUNDED
+            : PaymentStatus.PARTIALLY_REFUNDED
+          : PaymentStatus.REFUND_PENDING;
+        const nextRefundStatus = offlineRefund ? RefundStatus.SUCCEEDED : RefundStatus.PENDING;
         const claimed = await tx.payment.updateMany({
           where: { id: payment.id, status: payment.status },
-          data: { status: PaymentStatus.REFUND_PENDING },
+          data: { status: nextPaymentStatus },
         });
         if (claimed.count !== 1) throw new ConflictException('Payment changed concurrently; retry refund request');
 
@@ -126,13 +177,15 @@ export class PaymentsService {
             idempotencyKey,
             amount,
             reason,
-            provider: this.webhookProvider(),
+            provider: offlineRefund ? null : this.webhookProvider(),
+            status: nextRefundStatus,
+            refundedAt: offlineRefund ? new Date() : null,
             statusHistory: {
               create: {
                 fromStatus: null,
-                toStatus: RefundStatus.PENDING,
+                toStatus: nextRefundStatus,
                 actorId,
-                note: reason,
+                note: offlineRefund ? reason || 'COD cash return confirmed offline' : reason,
               },
             },
           },
@@ -142,15 +195,31 @@ export class PaymentsService {
           data: {
             paymentId,
             fromStatus: payment.status,
-            toStatus: PaymentStatus.REFUND_PENDING,
+            toStatus: nextPaymentStatus,
             actorId,
-            note: `Refund requested: ${refund.id}`,
+            note: offlineRefund ? `COD refund completed offline: ${refund.id}` : `Refund requested: ${refund.id}`,
           },
         });
         await tx.parentOrder.update({
           where: { id: payment.parentOrderId },
-          data: { paymentStatus: PaymentStatus.REFUND_PENDING },
+          data: { paymentStatus: nextPaymentStatus },
         });
+        if (this.outbox) {
+          await this.outbox.enqueue(tx, {
+            userId: payment.parentOrder.userId,
+            type: NotificationType.REFUND_STATUS_CHANGED,
+            title: offlineRefund ? 'Refund completed' : 'Refund requested',
+            message: `A refund of ${amount.toFixed(2)} for order ${payment.parentOrder.orderNumber} is ${nextRefundStatus}.`,
+            data: {
+              parentOrderId: payment.parentOrder.id,
+              paymentId: payment.id,
+              refundId: refund.id,
+              status: nextRefundStatus,
+            },
+            aggregateType: 'Refund',
+            aggregateId: refund.id,
+          });
+        }
         return refund;
       }, 'Refund changed concurrently; please retry');
     } catch (error) {
@@ -160,6 +229,9 @@ export class PaymentsService {
         include: { statusHistory: { orderBy: { createdAt: 'asc' } } },
       });
       if (!existing) throw new ConflictException('Refund idempotency key or provider reference already exists');
+      const payment = await this.prisma.payment.findUnique({ where: { id: paymentId }, select: { method: true } });
+      if (!payment) throw new NotFoundException('Payment not found');
+      this.assertRefundChannelConfirmation(payment.method, dto.confirmOfflineRefund);
       this.assertMatchingRefundRequest(existing, amount, reason);
       return existing;
     }
@@ -197,7 +269,10 @@ export class PaymentsService {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
         return await this.prisma.$transaction(async (tx) => {
-          const payment = await tx.payment.findUnique({ where: { id: dto.paymentId } });
+          const payment = await tx.payment.findUnique({
+            where: { id: dto.paymentId },
+            include: { parentOrder: { select: { id: true, userId: true, orderNumber: true } } },
+          });
           if (!payment) throw new NotFoundException('Payment not found');
           if (payment.method !== PaymentMethod.BANK_TRANSFER) {
             throw new BadRequestException('Webhook can settle bank transfer payments only');
@@ -232,6 +307,24 @@ export class PaymentsService {
           const currentRefund = refund
             ? await tx.refund.findUniqueOrThrow({ where: { id: refund.id } })
             : null;
+          if (this.outbox) {
+            await this.outbox.enqueue(tx, {
+              userId: payment.parentOrder.userId,
+              type: refund ? NotificationType.REFUND_STATUS_CHANGED : NotificationType.PAYMENT_STATUS_CHANGED,
+              title: refund ? 'Refund status updated' : 'Payment status updated',
+              message: refund
+                ? `Refund for order ${payment.parentOrder.orderNumber} is now ${currentRefund?.status}.`
+                : `Payment for order ${payment.parentOrder.orderNumber} is now ${currentPayment.status}.`,
+              data: {
+                parentOrderId: payment.parentOrder.id,
+                paymentId: payment.id,
+                refundId: currentRefund?.id ?? null,
+                status: currentRefund?.status ?? currentPayment.status,
+              },
+              aggregateType: refund ? 'Refund' : 'Payment',
+              aggregateId: refund?.id ?? payment.id,
+            });
+          }
           return {
             duplicate: false,
             eventId: event.eventId,
@@ -464,6 +557,17 @@ export class PaymentsService {
 
   private webhookProvider() {
     return this.config.get<string>('BANK_TRANSFER_PROVIDER')?.trim() || 'bank-transfer';
+  }
+
+  private assertRefundChannelConfirmation(method: PaymentMethod, confirmation: boolean | undefined) {
+    const offlineRefund = method === PaymentMethod.COD;
+    if (offlineRefund && confirmation !== true) {
+      throw new BadRequestException('COD refund requires explicit confirmation that cash was returned offline');
+    }
+    if (!offlineRefund && confirmation) {
+      throw new BadRequestException('Offline confirmation is valid only for COD refunds');
+    }
+    return offlineRefund;
   }
 
   private async withSerializableRetry<T>(

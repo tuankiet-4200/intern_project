@@ -22,7 +22,7 @@ describe('Coupon campaign integration', () => {
 
     await prisma.$connect();
     try {
-      const [customerA, customerB, vendor] = await Promise.all([
+      const [customerA, customerB, vendor, otherVendor] = await Promise.all([
         prisma.user.create({
           data: { email: `coupon-a-${suffix}@example.com`, passwordHash: 'unused', fullName: 'Coupon A' },
         }),
@@ -37,8 +37,16 @@ describe('Coupon campaign integration', () => {
             role: UserRole.VENDOR,
           },
         }),
+        prisma.user.create({
+          data: {
+            email: `coupon-other-vendor-${suffix}@example.com`,
+            passwordHash: 'unused',
+            fullName: 'Other Coupon Vendor',
+            role: UserRole.VENDOR,
+          },
+        }),
       ]);
-      userIds.push(customerA.id, customerB.id, vendor.id);
+      userIds.push(customerA.id, customerB.id, vendor.id, otherVendor.id);
       const shop = await prisma.shop.create({
         data: {
           ownerId: vendor.id,
@@ -72,6 +80,34 @@ describe('Coupon campaign integration', () => {
           data: { userId: customerB.id, recipient: 'B', phone: '0900000002', line1: '2 B', ward: 'W', district: 'D', city: 'C' },
         }),
       ]);
+
+      await expect(coupons.createForVendor(vendor.id, {
+        code: `vendor-global-${suffix}`,
+        scope: CouponScope.GLOBAL,
+        type: CouponType.PERCENTAGE,
+        value: '5',
+      })).rejects.toThrow('Vendor coupons must use SHOP scope');
+      await expect(coupons.createForVendor(otherVendor.id, {
+        code: `not-owned-${suffix}`,
+        scope: CouponScope.SHOP,
+        shopId: shop.id,
+        type: CouponType.PERCENTAGE,
+        value: '5',
+      })).rejects.toThrow('Not your shop');
+      const vendorCampaign = await coupons.createForVendor(vendor.id, {
+        code: `vendor-${suffix}`,
+        scope: CouponScope.SHOP,
+        shopId: shop.id,
+        type: CouponType.FIXED_AMOUNT,
+        value: '5000',
+        usageLimit: 5,
+        perUserLimit: 2,
+      });
+      couponIds.push(vendorCampaign.id);
+      const vendorPage = await coupons.listForVendor(vendor.id, { page: 1, limit: 20 });
+      expect(vendorPage.data.map((coupon) => coupon.id)).toContain(vendorCampaign.id);
+      expect((await coupons.listForVendor(otherVendor.id, { page: 1, limit: 20 })).total).toBe(0);
+      expect((await coupons.availableForUser(customerA.id)).map((coupon) => coupon.id)).toContain(vendorCampaign.id);
 
       await expect(coupons.create({
         code: `BAD-${suffix}`,
@@ -126,6 +162,9 @@ describe('Coupon campaign integration', () => {
       await expect(checkout.quote(customerA.id, { couponCode: campaign.code })).rejects.toThrow(
         'Coupon usage limit reached for this account',
       );
+      const availableAfterUse = await coupons.availableForUser(customerA.id);
+      expect(availableAfterUse.map((coupon) => coupon.id)).not.toContain(campaign.id);
+      expect(availableAfterUse.map((coupon) => coupon.id)).toContain(vendorCampaign.id);
 
       await cart.addItem(customerB.id, { productId: product.id, quantity: 1 });
       const secondQuote = await checkout.quote(customerB.id, { couponCode: campaign.code });

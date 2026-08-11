@@ -1,4 +1,4 @@
-import { BarChart3, Boxes, LayoutDashboard, PackageSearch, ReceiptText, ShoppingCart, Store, UserRound } from 'lucide-react';
+import { BarChart3, Bell, Boxes, LayoutDashboard, PackageSearch, ReceiptText, ShoppingCart, Store, UserRound } from 'lucide-react';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 
@@ -6,6 +6,7 @@ const navItems = [
   { href: '/', label: 'Market', icon: PackageSearch },
   { href: '/cart', label: 'Cart', icon: ShoppingCart },
   { href: '/orders', label: 'Orders', icon: ReceiptText },
+  { href: '/notifications', label: 'Notifications', icon: Bell },
   { href: '/vendor', label: 'Vendor', icon: Store },
   { href: '/admin', label: 'Admin', icon: LayoutDashboard },
 ];
@@ -38,7 +39,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       </header>
       <main className="mx-auto max-w-7xl px-4 py-6">{children}</main>
       <footer className="border-t border-[var(--line)] py-5 text-center text-sm text-[var(--muted)]">
-        Phase 3 commerce: cart, checkout, split orders, inventory reservation and payment tracking.
+        Multi-vendor commerce operations with audited inventory, payments and persisted notifications.
       </footer>
     </div>
   );

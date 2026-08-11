@@ -6,4 +6,5 @@ module.exports = {
     '^.+\\.(t|j)sx?$': ['ts-jest', { tsconfig: 'tsconfig.json' }],
   },
   testEnvironment: 'node',
+  modulePathIgnorePatterns: ['<rootDir>/.next/'],
 };

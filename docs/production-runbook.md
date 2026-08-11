@@ -1,8 +1,8 @@
 # Production Runbook and Deployment Draft
 
-Last updated: 2026-08-05
+Last updated: 2026-08-11
 
-Tài liệu này là quy trình vận hành production baseline cho monorepo Multi-Vendor Commerce Platform sau Phase 4. Nó dùng cách diễn đạt platform-agnostic để có thể áp dụng trên VM, container platform hoặc PaaS. Trước khi go-live thật, đội vận hành phải thay các giá trị mẫu bằng secret/domain/resource thực tế và diễn tập restore/rollback trên staging.
+Tài liệu này là quy trình vận hành production baseline cho monorepo Multi-Vendor Commerce Platform sau Phase 5E. Nó dùng cách diễn đạt platform-agnostic để có thể áp dụng trên VM, container platform hoặc PaaS. Trước khi go-live thật, đội vận hành phải thay các giá trị mẫu bằng secret/domain/resource thực tế và chạy workflow staging/restore/rollback với hạ tầng thật.
 
 ## 1. Phạm vi và trạng thái
 
@@ -22,7 +22,7 @@ Giới hạn hiện tại:
 - Distributed rate limiter đã dùng Redis. Với `RATE_LIMIT_FAILURE_MODE=closed`, Redis là critical request-path dependency và phải có HA/monitoring phù hợp.
 - RabbitMQ chưa nằm trong critical business path.
 - Bank transfer có signed provider-neutral webhook và refund transaction; adapter/reconciliation theo provider cụ thể chưa có.
-- Refund API chưa có admin/customer UI.
+- Persisted inbox dùng database outbox worker nhúng trong API; email/push/RabbitMQ delivery chưa nằm trong contract hiện tại.
 - Access token phía Web đã memory-only; static Turbopack CSP còn cần `unsafe-inline`, nên mọi third-party script/widget phải qua security review.
 
 ## 2. Kiến trúc deploy đề xuất
@@ -63,6 +63,9 @@ API:
 | `REFRESH_SESSION_RETENTION_DAYS` | Số ngày giữ expired/revoked rows để điều tra, mặc định 7 |
 | `REFRESH_SESSION_CLEANUP_BATCH_SIZE` | Rows mỗi batch, mặc định 500, cap 5000 |
 | `REFRESH_SESSION_CLEANUP_MAX_BATCHES` | Work cap mỗi run, mặc định 10, cap 100 |
+| `OUTBOX_WORKER_ENABLED` | Bật worker inbox; production đặt `true` trừ khi deploy worker process riêng |
+| `OUTBOX_WORKER_INTERVAL_MS` | Poll interval, mặc định 2000 ms; tối thiểu 250 ms |
+| `OUTBOX_WORKER_BATCH_SIZE` | Event mỗi batch, mặc định 100, cap 500 |
 | `FRONTEND_URL` | Exact HTTPS Web origin cho CORS |
 | `SHIPPING_FEE_PER_SHOP` | Policy phí ship hiện tại |
 | `RATE_LIMIT_MAX` | Request/IP/window; tune từ traffic thật |
@@ -95,17 +98,26 @@ Không log các biến secret.
 
 Workflow `.github/workflows/ci.yml` chạy với PostgreSQL và Redis service:
 
-1. `npm ci`.
+1. `npm ci` và audit production dependency với high threshold.
 2. Prisma Client generation.
 3. Migrations trên PostgreSQL 16 service.
 4. API/Web lint.
 5. API unit/integration và Web session/CSP unit tests.
-6. Auth + full commerce e2e.
+6. Auth + full commerce/payment/notification e2e.
 7. API/Web production builds.
 
 Không deploy commit có CI đỏ. Branch protection nên yêu cầu workflow `CI / verify` pass trước merge vào `main`.
 
 ## 5. Build artifact
+
+Deployable images đã được định nghĩa tại `apps/api/Dockerfile` và `apps/web/Dockerfile`, chạy non-root và dùng repository root làm build context:
+
+```bash
+docker build -f apps/api/Dockerfile -t intern-project-api:release .
+docker build -f apps/web/Dockerfile \
+  --build-arg NEXT_PUBLIC_API_URL=https://api.example.com/api \
+  -t intern-project-web:release .
+```
 
 API build:
 
@@ -156,6 +168,7 @@ npm run start -w @intern-project/web
 - Redis endpoint/TLS/auth hoạt động, memory/connection capacity đủ và eviction policy không xóa limiter keys ngoài dự kiến.
 - `RATE_LIMIT_FAILURE_MODE` đã được chọn có chủ đích; không dựa vào fallback mặc định.
 - Refresh-session cleanup retention/batch/interval đã phù hợp traffic và support investigation window.
+- Outbox worker interval/batch, failed-event alert và retention expectation đã được duyệt.
 - Web response CSP `connect-src` chứa đúng production API origin, không có staging/localhost origin.
 - On-call và rollback owner được thông báo.
 - Không có maintenance/incident đang diễn ra.
@@ -203,6 +216,16 @@ Mọi API replica phải dùng cùng `REDIS_URL`, `RATE_LIMIT_KEY_PREFIX`, max/w
 3. Verify home/login/static assets.
 4. Kiểm tra browser CORS/cookie.
 
+### 7.5 Staging workflow và rollback ref
+
+`.github/workflows/staging-release.yml` build/push immutable images lên GHCR, migrate một lần, gọi rollout webhook và chạy post-deploy smoke/load. GitHub Environment `staging` cần:
+
+- secret `STAGING_DATABASE_URL`;
+- secret `STAGING_DEPLOY_WEBHOOK_URL` và `STAGING_DEPLOY_WEBHOOK_TOKEN`;
+- variable `STAGING_API_URL` có `/api` suffix.
+
+Dispatch bằng exact `release_ref`. Khi rollback application, dispatch lại ref đã biết tốt; không reverse migration tự động. Hosting webhook phải rollout atomically hoặc canary và chỉ trả success khi deployment nhận image references.
+
 ## 8. Health and smoke checks
 
 ### 8.1 Health
@@ -238,6 +261,17 @@ curl -i https://api.example.com/api/products
 
 Expected 200 và structured pagination.
 
+Smoke tự động tương đương:
+
+```bash
+API_BASE_URL=https://api.example.com/api npm run smoke:api
+LOAD_URL=https://api.example.com/api/health \
+  LOAD_REQUESTS=500 LOAD_CONCURRENCY=25 LOAD_MAX_P95_MS=1500 \
+  npm run load:smoke
+```
+
+Load smoke là bounded regression gate, không thay soak/capacity test theo traffic thật.
+
 ### 8.3 Auth smoke
 
 - Login bằng staging smoke account.
@@ -262,10 +296,21 @@ Trên staging hoặc production test tenant được phép:
 7. Customer thấy COMPLETED sau polling.
 8. Customer review delivered OrderItem.
 9. Inventory ledger có reserve và sold entries.
+10. Customer/vendor inbox nhận đúng order/status event; mark-read của một account không ảnh hưởng account khác.
 
 Không chạy destructive/cancel/refund smoke trên order thật của customer.
 
-### 8.5 Payment webhook smoke
+### 8.5 Refund smoke
+
+Trên order fixture của staging:
+
+1. COD refund không có `confirmOfflineRefund=true` phải bị reject.
+2. COD có explicit confirmation tạo SUCCEEDED refund, cập nhật payment partial/full và customer order thấy record.
+3. Bank transfer refund tạo PENDING/REFUND_PENDING và chỉ callback signed mới kết thúc.
+4. Retry cùng idempotency key/payload trả cùng refund; khác payload trả conflict.
+5. Tổng successful refund không vượt payment amount.
+
+### 8.6 Payment webhook smoke
 
 Chỉ chạy trên staging payment fixture:
 
@@ -329,6 +374,7 @@ Thiết lập cảnh báo baseline rồi tune theo traffic:
 - `rate_limit_store_error`, `RATE_LIMIT_UNAVAILABLE` hoặc `X-RateLimit-Policy=bypass` xuất hiện.
 - `refresh_session_cleanup_error` lặp lại hoặc bảng `refresh_sessions` tăng liên tục ngoài retention expectation.
 - Checkout conflict/insufficient stock spike bất thường.
+- Outbox PENDING age/count tăng liên tục, FAILED count > 0 hoặc `outbox_worker_error` lặp lại.
 
 ## 10. Rate limiting
 
@@ -361,6 +407,17 @@ Memory store chỉ dành cho local/unit; không dùng để enforce quota toàn 
 - Migration user có thể tách riêng nếu policy yêu cầu.
 - Diễn tập restore định kỳ; backup chưa test restore không được xem là backup đáng tin.
 - Theo dõi slow queries, lock waits, table/index growth.
+
+Repository có guarded drill script. Restore target bị overwrite và phải là database riêng:
+
+```bash
+SOURCE_DATABASE_URL='postgresql://.../source' \
+RESTORE_DATABASE_URL='postgresql://.../restore_drill' \
+BACKUP_RESTORE_CONFIRM=restore-target-may-be-overwritten \
+npm run drill:backup-restore
+```
+
+`.github/workflows/operational-drills.yml` tự tạo target riêng, migrate/seed, smoke/load, dump/restore/verify rồi build images. Weekly schedule không thay managed backup/PITR; nó kiểm chứng công cụ và procedure.
 
 Refresh-session maintenance:
 
@@ -459,6 +516,14 @@ Không chạy SQL rollback ad-hoc khi chưa có backup và review.
 4. Nếu cần drain backlog, tăng batch/max-batches từng bước trong maintenance window và theo dõi locks, WAL, replication lag, autovacuum.
 5. Không giảm retention khẩn cấp khi security/support đang điều tra session reuse nếu chưa có approval và evidence export.
 
+### 13.8 Notification outbox incident
+
+1. Kiểm tra `outbox_worker_error`, PENDING oldest age, FAILED count và database connection/locks.
+2. FAILED do payload invalid phải được điều tra theo aggregate/event ID; không đổi tay sang PROCESSED nếu chưa tạo inbox record đúng.
+3. PENDING do outage sẽ retry; xác minh nhiều replica dùng `SKIP LOCKED` và unique `outboxEventId`, không chạy script insert Notification không idempotent.
+4. Có thể tăng batch/giảm interval tạm thời trong giới hạn config sau khi DB capacity được kiểm tra.
+5. Nếu inbox chậm nhưng order/payment transaction đã commit, không rollback business transaction; thông báo support bằng order state nguồn sự thật rồi drain outbox.
+
 ## 14. Security checklist
 
 - TLS/HSTS tại reverse proxy.
@@ -468,6 +533,7 @@ Không chạy SQL rollback ad-hoc khi chưa có backup và review.
 - Access token chỉ ở memory; refresh token HttpOnly; legacy localStorage key bị xóa.
 - CSP/API `connect-src` allowlist và browser security headers được smoke-test sau deploy; không mở wildcard cho widget mới.
 - Dependency audit trong release cadence.
+- Outbox payload không chứa secret/raw financial data; failed rows có alert và được giữ để điều tra.
 - DB/network least privilege.
 - Redis không public, dùng TLS/auth/least privilege; production prefix và outage policy được cấu hình rõ.
 - Admin account MFA/SSO khi identity provider được bổ sung.
@@ -482,6 +548,8 @@ Không chạy SQL rollback ad-hoc khi chưa có backup và review.
 - 5xx/latency/DB metrics ổn trong observation window.
 - Không có unexpected 429/CORS/cookie failure.
 - Protected-page reload refreshes once, localStorage remains token-free và Web CSP header có đúng API origin.
+- Notification worker drain bình thường; không có FAILED event hoặc PENDING quá SLA.
+- Production dependency audit không có high/critical advisory.
 - Readiness xác nhận Redis limiter up; nếu deliberate fail-open degraded thì release ticket phải ghi exception và alert/compensating gateway control.
 - Release ticket ghi commit, migration, deploy time, operator, backup ID.
 - Known gaps/risk được ghi vào `docs/project_context.md`.

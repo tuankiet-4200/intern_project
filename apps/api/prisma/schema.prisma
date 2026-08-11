@@ -94,6 +94,22 @@ enum CouponType {
   FIXED_AMOUNT
 }
 
+enum NotificationType {
+  ORDER_PLACED
+  NEW_SHOP_ORDER
+  SHOP_ORDER_STATUS_CHANGED
+  ORDER_CANCELLED
+  SHOP_REVIEWED
+  PAYMENT_STATUS_CHANGED
+  REFUND_STATUS_CHANGED
+}
+
+enum OutboxStatus {
+  PENDING
+  PROCESSED
+  FAILED
+}
+
 model User {
   id           String        @id @default(uuid()) @db.Uuid
   email        String        @unique
@@ -113,6 +129,7 @@ model User {
   couponUsages     CouponUsage[]
   refreshSessions  RefreshSession[]
   requestedRefunds Refund[]         @relation("RefundRequestedBy")
+  notifications    Notification[]
 
   @@map("users")
 }
@@ -505,4 +522,43 @@ model Review {
   @@unique([userId, orderItemId])
   @@index([productId])
   @@map("reviews")
+}
+
+model OutboxEvent {
+  id            String       @id @default(uuid()) @db.Uuid
+  aggregateType String       @map("aggregate_type")
+  aggregateId   String       @map("aggregate_id")
+  eventType     String       @map("event_type")
+  payload       Json
+  status        OutboxStatus @default(PENDING)
+  attempts      Int          @default(0)
+  availableAt   DateTime     @default(now()) @map("available_at")
+  processedAt   DateTime?    @map("processed_at")
+  lastError     String?      @map("last_error") @db.Text
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
+
+  notification Notification?
+
+  @@index([status, availableAt, createdAt])
+  @@index([aggregateType, aggregateId])
+  @@map("outbox_events")
+}
+
+model Notification {
+  id            String           @id @default(uuid()) @db.Uuid
+  userId        String           @map("user_id") @db.Uuid
+  outboxEventId String           @unique @map("outbox_event_id") @db.Uuid
+  type          NotificationType
+  title         String
+  message       String           @db.Text
+  data          Json?
+  readAt        DateTime?        @map("read_at")
+  createdAt     DateTime         @default(now()) @map("created_at")
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  outboxEvent OutboxEvent @relation(fields: [outboxEventId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt, createdAt])
+  @@map("notifications")
 }

@@ -1,0 +1,87 @@
+name: Staging release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: Git ref to deploy; choose an older ref for rollback
+        required: true
+        default: main
+      run_load_smoke:
+        description: Run the bounded post-deploy load smoke
+        required: true
+        type: boolean
+        default: true
+
+concurrency:
+  group: staging-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  release:
+    environment: staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      RELEASE_TAG: ${{ github.run_id }}-${{ github.run_attempt }}
+      RELEASE_REF: ${{ inputs.release_ref }}
+      DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+      API_BASE_URL: ${{ vars.STAGING_API_URL }}
+      LOAD_URL: ${{ vars.STAGING_API_URL }}/health
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Resolve image names
+        run: |
+          image_owner="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "API_IMAGE=ghcr.io/${image_owner}/intern-project-api" >> "${GITHUB_ENV}"
+          echo "WEB_IMAGE=ghcr.io/${image_owner}/intern-project-web" >> "${GITHUB_ENV}"
+      - run: npm ci
+      - run: npm run prisma:generate -w @intern-project/api
+      - run: npm run lint && npm test -w @intern-project/api -- --runInBand && npm run build
+      - name: Publish immutable application images
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "${GHCR_TOKEN}" | docker login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin
+          docker build -f apps/api/Dockerfile -t "${API_IMAGE}:${RELEASE_TAG}" .
+          docker build -f apps/web/Dockerfile --build-arg NEXT_PUBLIC_API_URL="${API_BASE_URL}" -t "${WEB_IMAGE}:${RELEASE_TAG}" .
+          docker push "${API_IMAGE}:${RELEASE_TAG}"
+          docker push "${WEB_IMAGE}:${RELEASE_TAG}"
+      - name: Apply forward-only database migrations
+        working-directory: apps/api
+        run: npx prisma migrate deploy
+      - name: Request staging rollout
+        env:
+          DEPLOY_WEBHOOK_URL: ${{ secrets.STAGING_DEPLOY_WEBHOOK_URL }}
+          DEPLOY_WEBHOOK_TOKEN: ${{ secrets.STAGING_DEPLOY_WEBHOOK_TOKEN }}
+        run: |
+          rollout_payload="$(jq --null-input \
+            --arg apiImage "${API_IMAGE}:${RELEASE_TAG}" \
+            --arg webImage "${WEB_IMAGE}:${RELEASE_TAG}" \
+            --arg gitRef "${RELEASE_REF}" \
+            '{apiImage: $apiImage, webImage: $webImage, gitRef: $gitRef}')"
+          curl --fail-with-body --retry 3 \
+            --header "Authorization: Bearer ${DEPLOY_WEBHOOK_TOKEN}" \
+            --header 'Content-Type: application/json' \
+            --data "${rollout_payload}" \
+            "${DEPLOY_WEBHOOK_URL}"
+      - name: Post-deploy smoke
+        run: npm run smoke:api
+      - name: Post-deploy bounded load smoke
+        if: ${{ inputs.run_load_smoke }}
+        env:
+          LOAD_REQUESTS: 500
+          LOAD_CONCURRENCY: 25
+          LOAD_MAX_P95_MS: 1500
+        run: npm run load:smoke

@@ -18,6 +18,20 @@ type Order = {
   paymentStatus: string;
   totalAmount: string;
   createdAt: string;
+  payments: Array<{
+    id: string;
+    method: string;
+    status: string;
+    amount: string;
+    refunds: Array<{
+      id: string;
+      amount: string;
+      status: string;
+      reason: string | null;
+      failureReason: string | null;
+      createdAt: string;
+    }>;
+  }>;
   shopOrders: Array<{
     id: string;
     status: string;
@@ -123,6 +137,12 @@ export default function OrdersPage() {
               <div className="text-right"><p className="font-semibold">{formatVnd(order.totalAmount)}</p><p className="text-xs text-[var(--muted)]">{order.status} · {order.paymentStatus}</p></div>
             </header>
             <div className="grid gap-3 p-4">
+              {order.payments.flatMap((payment) => payment.refunds.map((refund) => (
+                <div key={refund.id} className="rounded border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+                  Refund {formatVnd(refund.amount)} · {refund.status}
+                  <span className="block text-xs">{refund.reason || 'No reason provided'}{refund.failureReason ? ` · ${refund.failureReason}` : ''}</span>
+                </div>
+              )))}
               {order.shopOrders.map((shopOrder) => (
                 <section key={shopOrder.id} className="rounded border border-[var(--line)] p-3">
                   <div className="flex justify-between gap-3"><h3 className="font-medium">{shopOrder.shop.name}</h3><span className="text-xs text-[var(--muted)]">{shopOrder.status}</span></div>

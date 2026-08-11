@@ -1,5 +1,5 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { CouponScope, CouponType, Prisma } from '@prisma/client';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { CouponScope, CouponType, Prisma, ShopStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CouponQueryDto, CreateCouponDto, UpdateCouponDto } from './dto/coupons.dto';
 
@@ -43,6 +43,81 @@ export class CouponsService {
       this.prisma.coupon.count({ where }),
     ]);
     return { data, total, page: query.page, limit: query.limit };
+  }
+
+  async listForVendor(ownerId: string, query: CouponQueryDto) {
+    const shops = await this.prisma.shop.findMany({ where: { ownerId }, select: { id: true } });
+    const shopIds = shops.map((shop) => shop.id);
+    const where: Prisma.CouponWhereInput = {
+      shopId: { in: shopIds },
+      scope: CouponScope.SHOP,
+      isActive: query.isActive === undefined ? undefined : query.isActive === 'true',
+      code: query.search?.trim() ? { contains: query.search.trim(), mode: 'insensitive' } : undefined,
+    };
+    const [data, total] = await Promise.all([
+      this.prisma.coupon.findMany({
+        where,
+        include: { shop: { select: { id: true, name: true, slug: true, status: true } }, _count: { select: { usages: true } } },
+        orderBy: [{ createdAt: 'desc' }, { code: 'asc' }],
+        skip: (query.page - 1) * query.limit,
+        take: query.limit,
+      }),
+      this.prisma.coupon.count({ where }),
+    ]);
+    return { data, total, page: query.page, limit: query.limit };
+  }
+
+  async createForVendor(ownerId: string, dto: CreateCouponDto) {
+    if (dto.scope !== CouponScope.SHOP || !dto.shopId) {
+      throw new BadRequestException('Vendor coupons must use SHOP scope and an owned shop');
+    }
+    await this.assertVendorShop(ownerId, dto.shopId);
+    return this.create(dto);
+  }
+
+  async updateForVendor(ownerId: string, couponId: string, dto: UpdateCouponDto) {
+    const coupon = await this.assertVendorCoupon(ownerId, couponId);
+    if (dto.scope === CouponScope.GLOBAL) throw new ForbiddenException('Vendor cannot create global coupons');
+    if (dto.shopId && dto.shopId !== coupon.shopId) await this.assertVendorShop(ownerId, dto.shopId);
+    return this.update(couponId, { ...dto, scope: CouponScope.SHOP });
+  }
+
+  async updateStatusForVendor(ownerId: string, couponId: string, isActive: boolean) {
+    await this.assertVendorCoupon(ownerId, couponId);
+    return this.updateStatus(couponId, isActive);
+  }
+
+  async availableForUser(userId: string) {
+    const now = new Date();
+    const coupons = await this.prisma.coupon.findMany({
+      where: {
+        isActive: true,
+        AND: [
+          { OR: [{ startsAt: null }, { startsAt: { lte: now } }] },
+          { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
+          {
+            OR: [
+              { scope: CouponScope.GLOBAL },
+              { scope: CouponScope.SHOP, shop: { is: { status: ShopStatus.APPROVED } } },
+            ],
+          },
+        ],
+      },
+      include: {
+        shop: { select: { id: true, name: true, slug: true } },
+        usages: { where: { userId }, select: { id: true } },
+      },
+      orderBy: [{ expiresAt: 'asc' }, { code: 'asc' }],
+      take: 100,
+    });
+    return coupons
+      .filter((coupon) => coupon.usageLimit === null || coupon.usedCount < coupon.usageLimit)
+      .filter((coupon) => coupon.perUserLimit === null || coupon.usages.length < coupon.perUserLimit)
+      .map(({ usages, ...coupon }) => ({
+        ...coupon,
+        accountUsedCount: usages.length,
+        accountRemaining: coupon.perUserLimit === null ? null : coupon.perUserLimit - usages.length,
+      }));
   }
 
   async create(dto: CreateCouponDto) {
@@ -205,6 +280,27 @@ export class CouponsService {
 
   private normalizeCode(code: string) {
     return code.trim().toUpperCase();
+  }
+
+  private async assertVendorShop(ownerId: string, shopId: string) {
+    const shop = await this.prisma.shop.findUnique({ where: { id: shopId } });
+    if (!shop) throw new NotFoundException('Shop not found');
+    if (shop.ownerId !== ownerId) throw new ForbiddenException('Not your shop');
+    if (shop.status !== ShopStatus.APPROVED) throw new BadRequestException('Shop must be approved to manage coupons');
+    return shop;
+  }
+
+  private async assertVendorCoupon(ownerId: string, couponId: string) {
+    const coupon = await this.prisma.coupon.findUnique({
+      where: { id: couponId },
+      include: { shop: { select: { ownerId: true, status: true } } },
+    });
+    if (!coupon) throw new NotFoundException('Coupon not found');
+    if (coupon.scope !== CouponScope.SHOP || coupon.shop?.ownerId !== ownerId) {
+      throw new ForbiddenException('Not your coupon');
+    }
+    if (coupon.shop.status !== ShopStatus.APPROVED) throw new BadRequestException('Shop must be approved to manage coupons');
+    return coupon;
   }
 
   private isUniqueError(error: unknown) {

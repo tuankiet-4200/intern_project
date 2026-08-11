@@ -1,6 +1,6 @@
 # Execution Plan
 
-Last updated: 2026-08-05
+Last updated: 2026-08-11
 
 This is the implementation source of truth for the build-from-scratch commerce platform. Agents must read this file together with `docs/project_context.md` before editing.
 
@@ -198,7 +198,7 @@ Acceptance:
 
 ## Phase 5 - Post-Roadmap Reliability & Operations
 
-Status: in progress.
+Status: complete for the agreed provider-neutral scope. The only excluded product integration is the selected payment provider adapter/reconciliation.
 
 Phase 5A financial reliability completed:
 
@@ -251,11 +251,24 @@ Phase 5D session lifecycle and browser hardening completed:
 - Added restrictive Web CSP and complementary browser security headers while preserving Turbopack static generation.
 - Added PostgreSQL cleanup integration coverage and Web unit coverage for memory sessions, reload recovery, concurrent refresh and CSP construction.
 
-Next implementation order:
+Phase 5E product and operational completion:
+
+- Added persisted Notification/OutboxEvent models and migration with indexed pending/read paths.
+- Added transactional notification enqueue to shop review, checkout, order, payment and refund transactions.
+- Added a multi-replica-safe `FOR UPDATE SKIP LOCKED` outbox worker with unique delivery idempotency and malformed-event quarantine.
+- Added authenticated inbox list/unread/read-one/read-all APIs and `/notifications` UI.
+- Added admin payment listing and complete `/admin/refunds` workflow.
+- Added explicit COD offline-refund confirmation with atomic partial/full refund histories and customer order visibility.
+- Added vendor-owned coupon APIs/UI and customer coupon discovery/application in cart.
+- Added integration/e2e coverage for vendor ownership, coupon discovery, COD refunds and notification delivery/read state.
+- Added non-root API/Web Docker images, API smoke/load scripts and guarded backup/restore drill.
+- Added scheduled operational-drill workflow and provider-neutral staging build/push/migrate/rollout/smoke workflow.
+- Upgraded Next.js to 16.3.0; production dependency audit now reports zero vulnerabilities.
+
+Remaining external integration:
 
 1. Provider-specific bank-transfer adapter and reconciliation job.
-2. Persisted notifications/outbox and operational UI.
-3. Staging deployment, backup/restore/load/rollback drills and provider-specific CD.
+2. Configure staging GitHub Environment secrets/URLs and a hosting rollout webhook, then execute the supplied workflow against the selected infrastructure.
 
 ## Backlog
 

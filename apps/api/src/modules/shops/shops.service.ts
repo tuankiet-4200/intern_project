@@ -1,11 +1,15 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { ShopStatus } from '@prisma/client';
+import { NotificationType, ShopStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateShopDto, ReviewShopDto } from './dto/shops.dto';
+import { OutboxService } from '../notifications/outbox.service';
 
 @Injectable()
 export class ShopsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly outbox?: OutboxService,
+  ) {}
 
   findPublic() {
     return this.prisma.shop.findMany({
@@ -70,6 +74,16 @@ export class ShopsService {
           data: { role: 'VENDOR' },
         });
       }
+
+      if (this.outbox) await this.outbox.enqueue(tx, {
+        userId: shop.ownerId,
+        type: NotificationType.SHOP_REVIEWED,
+        title: `Shop ${dto.status === ShopStatus.APPROVED ? 'approved' : 'review updated'}`,
+        message: `${shop.name} is now ${dto.status}.`,
+        data: { shopId: shop.id, status: dto.status },
+        aggregateType: 'Shop',
+        aggregateId: shop.id,
+      });
 
       return updatedShop;
     });

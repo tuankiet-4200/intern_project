@@ -18,6 +18,10 @@ export default function AdminPage() {
           <h2 className="font-semibold">Coupon campaigns</h2>
           <p className="mt-2 text-sm text-[var(--muted)]">Create, schedule, limit, and activate discount campaigns.</p>
         </Link>
+        <Link href="/admin/refunds" className="rounded-md border border-[var(--line)] bg-white p-4">
+          <h2 className="font-semibold">Refund operations</h2>
+          <p className="mt-2 text-sm text-[var(--muted)]">Create and audit provider or offline COD refunds.</p>
+        </Link>
       </div>
     </AppShell>
   );

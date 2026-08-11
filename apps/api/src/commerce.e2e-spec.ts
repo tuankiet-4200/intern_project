@@ -8,11 +8,13 @@ import { randomUUID } from 'node:crypto';
 import * as request from 'supertest';
 import { AppModule } from './app.module';
 import { configureApp } from './configure-app';
+import { OutboxService } from './modules/notifications/outbox.service';
 import { PrismaService } from './prisma/prisma.service';
 
 describe('Complete commerce happy path e2e', () => {
   let app: INestApplication;
   let prisma: PrismaService;
+  let outbox: OutboxService;
   const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const adminEmail = `commerce-admin-${suffix}@example.com`;
   const vendorEmail = `commerce-vendor-${suffix}@example.com`;
@@ -22,6 +24,7 @@ describe('Complete commerce happy path e2e', () => {
   let categoryId: number | undefined;
   let productId: string | undefined;
   let parentOrderId: string | undefined;
+  let shopOrderId: string | undefined;
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
@@ -29,6 +32,7 @@ describe('Complete commerce happy path e2e', () => {
     configureApp(app);
     await app.init();
     prisma = app.get(PrismaService);
+    outbox = app.get(OutboxService);
     const admin = await prisma.user.create({
       data: {
         email: adminEmail,
@@ -42,6 +46,9 @@ describe('Complete commerce happy path e2e', () => {
 
   afterAll(async () => {
     if (prisma) {
+      const aggregateIds = [shopId, parentOrderId, shopOrderId].filter((id): id is string => Boolean(id));
+      await prisma.notification.deleteMany({ where: { outboxEvent: { aggregateId: { in: aggregateIds } } } });
+      await prisma.outboxEvent.deleteMany({ where: { aggregateId: { in: aggregateIds } } });
       if (parentOrderId) await prisma.parentOrder.deleteMany({ where: { id: parentOrderId } });
       if (productId) await prisma.cartItem.deleteMany({ where: { productId } });
       if (productId) await prisma.product.deleteMany({ where: { id: productId } });
@@ -97,6 +104,12 @@ describe('Complete commerce happy path e2e', () => {
       .expect(200);
     expect(vendorLogin.body.user.role).toBe(UserRole.VENDOR);
     const vendorToken = vendorLogin.body.accessToken as string;
+    await outbox.runOnce();
+    const shopReviewNotifications = await request(app.getHttpServer())
+      .get('/api/notifications')
+      .set('Authorization', `Bearer ${vendorToken}`)
+      .expect(200);
+    expect(shopReviewNotifications.body.data.some((notification: { type: string }) => notification.type === 'SHOP_REVIEWED')).toBe(true);
 
     const product = await request(app.getHttpServer())
       .post(`/api/shops/${shopId}/products`)
@@ -162,8 +175,20 @@ describe('Complete commerce happy path e2e', () => {
       })
       .expect(201);
     parentOrderId = checkout.body.id;
-    const shopOrderId = checkout.body.shopOrders[0].id as string;
+    shopOrderId = checkout.body.shopOrders[0].id as string;
     const orderItemId = checkout.body.shopOrders[0].items[0].id as string;
+
+    await outbox.runOnce();
+    const customerNotifications = await request(app.getHttpServer())
+      .get('/api/notifications?unreadOnly=true')
+      .set('Authorization', `Bearer ${customerToken}`)
+      .expect(200);
+    expect(customerNotifications.body.data.some((notification: { type: string }) => notification.type === 'ORDER_PLACED')).toBe(true);
+    const vendorNotifications = await request(app.getHttpServer())
+      .get('/api/notifications')
+      .set('Authorization', `Bearer ${vendorToken}`)
+      .expect(200);
+    expect(vendorNotifications.body.data.some((notification: { type: string }) => notification.type === 'NEW_SHOP_ORDER')).toBe(true);
 
     const prematureReview = await request(app.getHttpServer())
       .post('/api/reviews')
@@ -194,6 +219,24 @@ describe('Complete commerce happy path e2e', () => {
       .set('Authorization', `Bearer ${customerToken}`)
       .expect(200);
     expect(completedOrder.body.status).toBe('COMPLETED');
+
+    await outbox.runOnce();
+    const completedNotifications = await request(app.getHttpServer())
+      .get('/api/notifications')
+      .set('Authorization', `Bearer ${customerToken}`)
+      .expect(200);
+    expect(completedNotifications.body.data.some((notification: { type: string; data?: { status?: string } }) => (
+      notification.type === 'SHOP_ORDER_STATUS_CHANGED' && notification.data?.status === ShopOrderStatus.DELIVERED
+    ))).toBe(true);
+    await request(app.getHttpServer())
+      .patch('/api/notifications/read-all')
+      .set('Authorization', `Bearer ${customerToken}`)
+      .expect(200);
+    const unread = await request(app.getHttpServer())
+      .get('/api/notifications/unread-count')
+      .set('Authorization', `Bearer ${customerToken}`)
+      .expect(200);
+    expect(unread.body.count).toBe(0);
 
     const review = await request(app.getHttpServer())
       .post('/api/reviews')

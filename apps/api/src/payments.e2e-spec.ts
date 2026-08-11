@@ -16,6 +16,7 @@ describe('Payment webhook HTTP security (e2e)', () => {
   const secret = 'phase5-e2e-secret-at-least-32-characters';
   const userIds: string[] = [];
   let parentOrderId: string | undefined;
+  let paymentId: string | undefined;
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
@@ -34,6 +35,10 @@ describe('Payment webhook HTTP security (e2e)', () => {
   });
 
   afterAll(async () => {
+    if (paymentId) {
+      await prisma.notification.deleteMany({ where: { outboxEvent: { aggregateId: paymentId } } });
+      await prisma.outboxEvent.deleteMany({ where: { aggregateId: paymentId } });
+    }
     if (parentOrderId) await prisma.parentOrder.delete({ where: { id: parentOrderId } });
     await prisma.user.deleteMany({ where: { id: { in: userIds } } });
     await app.close();
@@ -61,6 +66,7 @@ describe('Payment webhook HTTP security (e2e)', () => {
       include: { payments: true },
     });
     parentOrderId = order.id;
+    paymentId = order.payments[0].id;
     const payload = {
       eventId: `phase5-http-event-${suffix}`,
       type: PaymentWebhookType.PAYMENT_SUCCEEDED,

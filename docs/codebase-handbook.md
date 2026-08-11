@@ -1,8 +1,8 @@
 # Codebase Handbook - Multi-Vendor Commerce Platform
 
-Last updated: 2026-08-05
+Last updated: 2026-08-11
 
-Tài liệu này giải thích code và luồng chạy hiện tại của dự án cho developer mới, đặc biệt là fresher. Đây không phải tài liệu ý tưởng: nội dung bám theo source code đến Phase 5D session lifecycle/browser hardening hiện tại.
+Tài liệu này giải thích code và luồng chạy hiện tại của dự án cho developer mới, đặc biệt là fresher. Đây không phải tài liệu ý tưởng: nội dung bám theo source code đến Phase 5E provider-neutral completion hiện tại.
 
 Khi code thay đổi, tài liệu này phải được cập nhật cùng task. Không để tài liệu mô tả endpoint, trạng thái hoặc invariant đã khác với code.
 
@@ -62,28 +62,28 @@ Không bắt đầu sửa service trước khi hiểu:
 - Cart.
 - Checkout quote và checkout commit.
 - Coupon evaluation trong checkout.
-- Coupon campaign administration và per-customer usage limits.
+- Coupon campaign administration, vendor self-service, customer discovery và per-customer usage limits.
 - Parent order, shop order và order item snapshot.
 - Customer order history/cancel.
 - Vendor fulfillment.
 - Payment record, payment state transition và audit history.
-- Signed bank-transfer webhook, replay protection và explicit partial/full refund transactions.
+- Signed bank-transfer webhook, replay protection, bank-transfer refund transaction và explicit offline COD refund.
+- Admin refund operations UI và customer refund visibility trong order detail.
+- Persisted notification inbox qua transactional outbox, idempotent worker và read/unread state.
 - Review sau khi giao hàng, public review aggregate và customer review UI.
 - Polling order status 15 giây cho customer/vendor.
 - Request ID, security headers, structured errors, HTTP timing logs và Redis distributed rate limiting.
-- Database/Redis-aware readiness endpoint, full commerce e2e, CI workflow và production runbook.
+- Database/Redis-aware readiness endpoint, full commerce e2e, CI, container images, operational drills và provider-neutral staging workflow.
 - Web CSP, browser security headers và Web unit-test suite.
 - Customer/vendor/admin UI tương ứng.
 
 Chưa hoàn thiện hoặc mới là placeholder:
 
 - Signed webhook hiện dùng contract provider-neutral; adapter map payload riêng của SePay/VNPay/MoMo và reconciliation job vẫn chưa có.
-- Refund đã có API/admin transaction và provider callback, nhưng chưa có admin/customer UI.
 - Redis đang được dùng cho distributed rate limiting; RabbitMQ chưa publish/consume message.
-- Notification hiện là polling; chưa có notification inbox/event delivery.
 - Rate limiter đã chia sẻ quota qua Redis; fixed-window vẫn có thể burst ở biên window và cần managed Redis HA khi production fail-closed.
 - CSP static/Turbopack vẫn cần `unsafe-inline`; strict nonce/SRI policy còn phụ thuộc hỗ trợ ổn định từ Next.js hoặc quyết định đổi rendering/bundler.
-- CI đã verify code nhưng chưa có CD tự động tới một hosting provider cụ thể.
+- Staging workflow đã có contract build/push/migrate/rollout/smoke; webhook rollout, database URL và GitHub Environment secrets vẫn phải được cấu hình theo hosting thực tế.
 
 Không được mô tả các mục “chưa hoàn thiện” như tính năng production-ready.
 
@@ -1067,7 +1067,7 @@ SHOP discount chỉ phân bổ cho shop áp dụng.
 
 ### 15.6 Quản trị coupon campaign
 
-Actor: ADMIN. Frontend entry: `/admin/coupons`. Backend module: `modules/coupons`.
+Actor: ADMIN hoặc VENDOR. Frontend entry: `/admin/coupons`, `/vendor/coupons`; customer discovery nằm trong `/cart`. Backend module: `modules/coupons`.
 
 Endpoints:
 
@@ -1075,6 +1075,11 @@ Endpoints:
 - `POST /admin/coupons`: tạo GLOBAL hoặc SHOP campaign.
 - `PATCH /admin/coupons/:couponId`: sửa cấu hình.
 - `PATCH /admin/coupons/:couponId/status`: activate/deactivate.
+- `GET /vendor/coupons`: chỉ trả SHOP campaign thuộc các shop của current vendor.
+- `POST /vendor/coupons`: chỉ nhận scope SHOP và shop đã APPROVED thuộc current vendor.
+- `PATCH /vendor/coupons/:couponId`: ownership được kiểm tra lại trước khi update; vendor không thể đổi thành GLOBAL hoặc chuyển sang shop người khác.
+- `PATCH /vendor/coupons/:couponId/status`: activate/deactivate coupon thuộc vendor.
+- `GET /coupons/available`: customer/vendor đã đăng nhập nhận tối đa 100 campaign active, đang trong schedule, chưa hết tổng lượt và chưa hết lượt của chính tài khoản.
 
 Create/Update DTO nhận money dưới dạng decimal string để không đưa floating point vào boundary. Code được trim/uppercase. Rule:
 
@@ -1088,6 +1093,8 @@ Create/Update DTO nhận money dưới dạng decimal string để không đưa 
 Sau khi có CouponUsage, `code`, `scope`, `shopId`, `type`, `value` bị khóa vì đây là điều khoản kinh tế đã áp vào order. Admin vẫn có thể sửa schedule, min/cap/limits, nhưng total limit không thấp hơn `usedCount` và per-user limit không thấp hơn mức một user đã dùng thực tế. Update chạy Serializable transaction; code unique conflict trả `409`.
 
 Không delete coupon. Deactivate bảo toàn CouponUsage/order audit. Database migration còn thêm check constraints cho limit dương/nhất quán để script ngoài application cũng không ghi state sai.
+
+`availableForUser` không khẳng định mọi coupon đều áp dụng cho cart hiện tại. Nó là discovery list: GLOBAL luôn có thể được trả; SHOP chỉ được trả khi shop còn APPROVED. Khi user bấm coupon, `/checkout/quote` vẫn là authority cuối cùng để kiểm tra shop có trong cart, minimum amount, stock, schedule và usage trong thời điểm đó. Cách này tránh copy pricing logic sang frontend.
 
 ### 15.7 Công thức tổng
 
@@ -1429,11 +1436,17 @@ Input:
 {
   "amount": "150000.00",
   "idempotencyKey": "refund-order-123-v1",
-  "reason": "Customer return accepted"
+  "reason": "Customer return accepted",
+  "confirmOfflineRefund": false
 }
 ```
 
-Chỉ ADMIN đi qua JWT + RolesGuard. Service hiện hỗ trợ provider-backed refund cho `BANK_TRANSFER`; COD cần quy trình hoàn tiền/đối soát riêng trước khi mở.
+Chỉ ADMIN đi qua JWT + RolesGuard. `/admin/refunds` load payment theo trang/filter, cho admin chọn payment còn refundable, nhập amount/reason và tạo UUID idempotency key.
+
+Hai policy được tách rõ:
+
+- `BANK_TRANSFER`: tạo Refund `PENDING`, Payment chuyển `REFUND_PENDING`, chờ signed provider callback. `confirmOfflineRefund` phải false/omit.
+- `COD`: admin phải tick xác nhận đã hoàn tiền ngoài hệ thống (`confirmOfflineRefund=true`). Refund được ghi `SUCCEEDED` ngay trong transaction, vì nền tảng không gọi provider điện tử cho tiền mặt. Nếu không có explicit confirmation, API trả 400.
 
 Serializable transaction:
 
@@ -1441,8 +1454,8 @@ Serializable transaction:
 2. Payment phải `PAID` hoặc `PARTIALLY_REFUNDED`.
 3. Sum mọi Refund `SUCCEEDED` bằng Decimal.
 4. `requested amount <= payment.amount - succeeded refund total`.
-5. Conditional Payment transition sang `REFUND_PENDING`; vì vậy chỉ có một provider refund đang chờ cho một Payment.
-6. Tạo Refund `PENDING`, initial RefundStatusHistory và PaymentStatusHistory trong cùng transaction.
+5. Với bank transfer, conditional Payment transition sang `REFUND_PENDING`; vì vậy chỉ có một provider refund đang chờ cho một Payment.
+6. Tạo Refund `PENDING` cho bank transfer hoặc `SUCCEEDED` cho confirmed COD, cùng initial/final RefundStatusHistory và PaymentStatusHistory trong transaction.
 7. Đồng bộ ParentOrder summary.
 
 Hai request refund cạnh tranh dùng Serializable isolation + compare-and-swap + retry. Chỉ một request claim được Payment; request còn lại reload state và bị reject. Unique idempotency vẫn bảo đảm concurrent retry cùng request không tạo hai Refund.
@@ -1465,7 +1478,9 @@ Failure:
 
 Mọi nhánh đều append RefundStatusHistory + PaymentStatusHistory; không rewrite/delete historical rows. Transaction rollback toàn bộ nếu amount lệch, reference trùng, state concurrent hoặc tổng successful refund vượt payment amount.
 
-Endpoint `GET /payments/:paymentId/refunds` cho ADMIN đọc refund mới nhất trước cùng toàn bộ history. Admin/customer UI và provider-specific request-out adapter vẫn là deferred work.
+Endpoint `GET /payments/:paymentId/refunds` cho ADMIN đọc refund mới nhất trước cùng toàn bộ history.
+
+`GET /payments` cho ADMIN hỗ trợ pagination và filter status/method, trả order/customer/refunds/history cho màn operations. Customer không được gọi endpoint admin; thay vào đó own-order include payment/refund cần thiết để `/orders` hiển thị trạng thái hoàn tiền mà không lộ order người khác. Provider-specific request-out adapter vẫn là deferred work.
 
 ---
 
@@ -1516,7 +1531,7 @@ Trang `/orders` load song song orders và `/reviews/me`, sau đó map review the
 
 Sau submit, page reload orders/reviews từ server. Integration test kiểm tra buyer-only, delivered-only, duplicate và update ownership; full commerce e2e kiểm tra review qua HTTP sau vendor delivery.
 
-### 20.4 Polling notification baseline
+### 20.4 Order polling và persisted notification inbox
 
 Customer `/orders` và vendor `/vendor/orders` tự poll mỗi 15 giây:
 
@@ -1527,7 +1542,63 @@ Customer `/orders` và vendor `/vendor/orders` tự poll mỗi 15 giây:
 5. UI hiển thị thời điểm update gần nhất.
 6. Unmount sẽ clear timeout/interval.
 
-Polling là lựa chọn Phase 4 vì đơn giản, dễ retry và chưa cần connection state như WebSocket. Khi traffic tăng, cần cache/ETag hoặc notification event để tránh mọi client query toàn bộ order list liên tục.
+Polling order list vẫn phục vụ việc đồng bộ toàn bộ aggregate. Notification inbox là một luồng riêng để user không bỏ lỡ sự kiện khi đóng tab hoặc reload; nó không dùng WebSocket và không thay thế việc backend revalidate state.
+
+Các event hiện được tạo:
+
+- `SHOP_REVIEWED`: vendor nhận kết quả admin duyệt shop.
+- `ORDER_PLACED`: customer nhận xác nhận checkout.
+- `NEW_SHOP_ORDER`: mỗi shop owner nhận shop order mới.
+- `SHOP_ORDER_STATUS_CHANGED`: customer nhận fulfillment status mới.
+- `ORDER_CANCELLED`: customer/vendor liên quan nhận cancellation.
+- `PAYMENT_STATUS_CHANGED`: customer nhận payment summary mới.
+- `REFUND_STATUS_CHANGED`: customer nhận refund pending/succeeded/failed.
+
+### 20.5 Vì sao dùng transactional outbox
+
+Nếu service commit order rồi mới gọi một notification service bên ngoài, process có thể chết giữa hai bước: order tồn tại nhưng notification mất. Ngược lại, gửi trước rồi transaction rollback sẽ tạo notification về một order không tồn tại.
+
+Vì vậy domain service gọi `OutboxService.enqueue(tx, request)` bằng đúng Prisma transaction đang ghi shop/order/payment/refund. Transaction chỉ commit khi cả business data lẫn `OutboxEvent(PENDING)` đều được lưu. Đây là atomic durability boundary; inbox delivery diễn ra sau commit.
+
+`OutboxEvent` lưu:
+
+- aggregate type/id để trace ngược business entity;
+- event type `notification.requested`;
+- JSON payload gồm recipient/type/title/message/data;
+- status `PENDING | PROCESSED | FAILED`, attempts, available/processed time và last error.
+
+Không đưa password/token/raw financial webhook vào payload. `data` chỉ chứa identifier/status đủ để UI điều hướng hoặc hiển thị context.
+
+### 20.6 Worker delivery, concurrency và idempotency
+
+`OutboxService` bắt đầu timer không giữ process sống (`unref`) ở application bootstrap. Mỗi batch:
+
+1. Query candidate PENDING tới hạn theo created order, có batch cap.
+2. Với từng ID, mở transaction và lock row bằng `FOR UPDATE SKIP LOCKED`.
+3. Parse/validate event type và payload.
+4. `upsert Notification` theo unique `outboxEventId`.
+5. Mark OutboxEvent PROCESSED, tăng attempts, set processedAt.
+
+`SKIP LOCKED` cho phép nhiều API replica cùng chạy worker nhưng không xử lý một row đồng thời. Unique `Notification.outboxEventId` làm delivery idempotent nếu worker retry sau lỗi không chắc chắn. Payload sai được mark FAILED cùng `lastError`, không chặn các row sau. Lỗi hạ tầng giữ event PENDING do transaction rollback để lần sau retry.
+
+Config:
+
+- `OUTBOX_WORKER_ENABLED` bật/tắt worker nhúng trong API.
+- `OUTBOX_WORKER_INTERVAL_MS` interval, tối thiểu 250 ms.
+- `OUTBOX_WORKER_BATCH_SIZE` batch 1-500.
+
+Khi tải lớn, có thể tách worker process hoặc publish RabbitMQ/email/push sau outbox mà không thay đổi transaction boundary. Không xóa outbox failed/proccessed trước khi có retention và audit policy.
+
+### 20.7 Inbox authorization và read state
+
+Mọi notification endpoint dùng JWT và chỉ query `userId=currentUser.sub`:
+
+- `GET /notifications?page=&limit=&unreadOnly=` trả page, total và unread count.
+- `GET /notifications/unread-count` trả counter nhẹ.
+- `PATCH /notifications/:id/read` chỉ update row thuộc user; ID người khác trả 404.
+- `PATCH /notifications/read-all` update toàn bộ unread của current user.
+
+`Notification.readAt=null` nghĩa là chưa đọc; mark-read là idempotent. Frontend `/notifications` có unread filter, mark-one/mark-all, loading/error/empty states. Bell link trong AppShell là entry point; hiện chưa push realtime badge nên page reload/poll mới lấy counter mới.
 
 ---
 
@@ -1707,6 +1778,32 @@ Backend ownership/status rules vẫn bắt buộc; disabled button trên UI khô
 - Edit economic terms sau usage vẫn được UI gửi nhưng backend reject; backend là business source of truth.
 - Activate/deactivate reload server state và hiển thị actionable error.
 
+### 22.13 `/vendor/coupons`
+
+- Load song song `/shops/me` và `/vendor/coupons`; chỉ shop APPROVED xuất hiện trong form.
+- Form create/edit luôn gửi `scope=SHOP`; backend vẫn kiểm tra ownership và không tin shopId từ browser.
+- Cho cấu hình percentage/fixed, min/cap, total/per-account limit và schedule.
+- Empty optional field khi edit gửi `null` để xóa policy; create omit field.
+- Card cho edit và activate/deactivate, sau mutation reload server state.
+- Vendor chưa có approved shop nhận empty/actionable state thay vì form không dùng được.
+
+### 22.14 `/admin/refunds`
+
+- Load `/payments` có order/customer/refund histories.
+- Chỉ payment `PAID` hoặc `PARTIALLY_REFUNDED` được chọn để refund.
+- Mỗi submit sinh `crypto.randomUUID()` làm idempotency key; double-submit bị khóa bằng submitting state, backend vẫn là lớp bảo vệ chính.
+- COD yêu cầu checkbox xác nhận offline refund; bank transfer giải thích rõ kết quả sẽ PENDING chờ callback.
+- Sau mutation reload payment/refund state. Amount/reason/provider reference/history được hiển thị để admin audit.
+
+### 22.15 `/notifications`
+
+- Load page notification của current session.
+- Toggle unread-only tạo query mới; mark one/all gọi endpoint scoped theo current user.
+- Render type, title, message, time và read state; không render raw HTML từ payload.
+- Nếu access token memory trống sau reload, `apiRequest` phục hồi bằng refresh cookie như các protected page khác.
+
+Customer `/orders` đồng thời render refund records nằm trong own-order response. Customer chỉ quan sát status/amount/reason/time, không có quyền tạo hoặc mutate refund.
+
 ---
 
 ## 23. API endpoint matrix
@@ -1759,15 +1856,25 @@ Mọi path dưới đây có prefix `/api`.
 | POST | `/admin/coupons` | Admin | Create global/shop campaign |
 | PATCH | `/admin/coupons/:id` | Admin | Update mutable campaign policy |
 | PATCH | `/admin/coupons/:id/status` | Admin | Activate/deactivate campaign |
+| GET | `/vendor/coupons` | Vendor | Own-shop campaigns |
+| POST | `/vendor/coupons` | Vendor owner | Create own approved-shop campaign |
+| PATCH | `/vendor/coupons/:id` | Vendor owner | Update own campaign |
+| PATCH | `/vendor/coupons/:id/status` | Vendor owner | Activate/deactivate own campaign |
+| GET | `/coupons/available` | Customer/Vendor | Discover currently available campaigns |
 | GET | `/orders` | Customer/Vendor | Own parent orders |
 | GET | `/orders/:id` | Order owner | Own order detail |
 | PATCH | `/orders/:id/cancel` | Order owner | Cancel eligible parent order |
 | GET | `/shops/:shopId/orders` | Vendor owner | Shop fulfillment queue |
 | PATCH | `/shop-orders/:id/status` | Vendor owner | Fulfillment transition |
+| GET | `/payments` | Admin | Payment/refund operations page |
 | PATCH | `/payments/:id/status` | Admin | Payment transition/audit |
 | POST | `/payments/:id/refunds` | Admin | Idempotent partial/full refund request |
 | GET | `/payments/:id/refunds` | Admin | Refunds + append-only histories |
 | POST | `/payments/webhooks/bank-transfer` | Signed provider | Payment/refund settlement callback |
+| GET | `/notifications` | Authenticated | Own inbox page/unread filter |
+| GET | `/notifications/unread-count` | Authenticated | Own unread count |
+| PATCH | `/notifications/:id/read` | Notification owner | Mark one read |
+| PATCH | `/notifications/read-all` | Authenticated | Mark own inbox read |
 | GET | `/products/:productId/reviews` | Public | Reviews + average rating |
 | GET | `/reviews/me` | Customer/Vendor | Own reviews |
 | POST | `/reviews` | Customer/Vendor buyer | Review delivered OrderItem |
@@ -1823,6 +1930,7 @@ Không sửa migration cũ đã được chia sẻ/applied. Tạo migration mớ
 - Phase 3 checkout fingerprints, per-user idempotency và payment history.
 - Phase 5 financial reliability: partial-refund status, refunds/history, webhook event audit và provider reference uniqueness.
 - Phase 5 coupon campaigns: per-user limit, updated timestamp, usage lookup index và database limit constraints.
+- Phase 5 notifications/outbox: notification/outbox enums, durable event rows, idempotent inbox rows và query indexes.
 
 ### 25.3 Seed
 
@@ -1867,7 +1975,9 @@ Kết nối PostgreSQL thật:
 - Inventory concurrent reserve.
 - Phase 3 checkout/order/payment.
 - Payment signed webhook và partial/full/concurrent refund.
-- Coupon campaign rules, immutable used terms, per-account enforcement và competing checkout.
+- COD explicit offline partial/full refund và payment summary aggregation.
+- Coupon campaign rules, vendor ownership, discovery, immutable used terms, per-account enforcement và competing checkout.
+- Notification outbox delivery/idempotency, malformed-event quarantine và read ownership.
 - Review buyer/delivery/duplicate/ownership rules.
 - Refresh-session cleanup retention, active-row preservation và bounded deletion.
 - Redis rate limiter dùng hai instance để chứng minh quota chung và bốn instance/100 request để chứng minh atomic quota dưới concurrent load.
@@ -1901,8 +2011,9 @@ Test integration phải cleanup dữ liệu theo đúng dependency order: order 
 5. Review trước delivery bị reject bằng structured error.
 6. Vendor fulfill qua mọi transition tới DELIVERED.
 7. Parent order COMPLETED.
-8. Customer tạo review; public aggregate cập nhật.
-9. Request ID/security header/404 error shape được kiểm tra.
+8. Outbox được drain và customer/vendor inbox nhận đúng event; read-all đưa unread count về 0.
+9. Customer tạo review; public aggregate cập nhật.
+10. Request ID/security header/404 error shape được kiểm tra.
 
 `payments.e2e-spec.ts` bootstrap app với raw-body support và xác minh unsigned/stale callbacks bị `401`, exact HMAC callback được xử lý, request ID được giữ và replay không tạo event thứ hai.
 
@@ -1916,6 +2027,9 @@ npm run lint
 npm run build -w @intern-project/api
 npm run build -w @intern-project/web
 npx prisma validate --schema apps/api/prisma/schema.prisma
+npm audit --omit=dev --audit-level=high
+npm run smoke:api
+LOAD_REQUESTS=500 LOAD_CONCURRENCY=25 npm run load:smoke
 ```
 
 Integration tests cần PostgreSQL local đang chạy, migration mới nhất đã apply và Redis local ở `REDIS_URL`.
@@ -1924,7 +2038,7 @@ Integration tests cần PostgreSQL local đang chạy, migration mới nhất đ
 
 `.github/workflows/ci.yml` chạy trên pull request và push main với PostgreSQL 16 cùng Redis 7 service:
 
-1. npm clean install.
+1. npm clean install và production dependency audit.
 2. Prisma generate/migrate deploy.
 3. Lint.
 4. API unit/integration và Web session/CSP unit tests.
@@ -1933,7 +2047,26 @@ Integration tests cần PostgreSQL local đang chạy, migration mới nhất đ
 
 `docs/production-runbook.md` là deployment draft và on-call guide: environment/secrets, backup, migration order, API/Web rollout, liveness/readiness, Redis limiter policy, smoke test, logging/request ID, alerts, rollback và incident playbooks.
 
-CI là quality gate, chưa tự deploy tới provider cụ thể. Khi thêm CD phải giữ migration là release job chạy một lần và không để mọi API replica đồng thời chạy `migrate dev`.
+`operational-drills.yml` chạy theo lịch/manual: migrate + seed một database tạm, khởi động API artifact, chạy smoke/load, dump/restore sang database khác rồi build cả hai Docker image.
+
+`staging-release.yml` là contract CD provider-neutral: checkout exact ref, quality gate, publish immutable API/Web image lên GHCR, chạy `migrate deploy` một lần, gọi protected deployment webhook, rồi smoke/load staging. Chọn một ref cũ khi dispatch là đường rollback application image; migration vẫn forward-only. Workflow chỉ hoạt động sau khi GitHub Environment `staging` có URL/secret thật như runbook mô tả.
+
+Container build luôn dùng repository root làm context:
+
+```bash
+docker build -f apps/api/Dockerfile -t intern-project-api:local .
+docker build -f apps/web/Dockerfile \
+  --build-arg NEXT_PUBLIC_API_URL=https://api.example.com/api \
+  -t intern-project-web:local .
+```
+
+API image cài OpenSSL để Prisma engine detect đúng runtime, generate client trong build stage, chạy non-root `node` và mang migration files cho release job. Web image bake public API URL lúc build; đổi URL bắt buộc rebuild image. `.dockerignore` loại secret, git metadata, build output và local dependencies khỏi context.
+
+Operational scripts:
+
+- `smoke-api.mjs`: kiểm tra liveness/readiness/products, status/body contract, `nosniff` header và timeout.
+- `load-smoke.mjs`: bounded request/concurrency, fail nếu có non-2xx/timeout hoặc p95 vượt threshold. Đây là smoke, không thay load test capacity dài hạn.
+- `backup-restore-drill.sh`: yêu cầu source/restore URL khác nhau và exact confirmation phrase; custom-format dump, clean restore, rồi so migration/user counts. Restore target sẽ bị overwrite, tuyệt đối không trỏ vào production.
 
 API `tsconfig.json` để `incremental=false` cho production compilation. Nest build xóa `dist`; nếu giữ stale incremental metadata bên ngoài `dist`, TypeScript có thể tưởng file cũ đã emit và chỉ tạo các file vừa đổi, dẫn tới artifact compile “pass” nhưng runtime thiếu module. E2e specs cũng được exclude khỏi `dist`. Runtime smoke phải khởi động `node dist/main`, không chỉ dừng ở `nest build`.
 
