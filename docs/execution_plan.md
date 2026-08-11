@@ -273,6 +273,8 @@ Phase 5F role-aware frontend experience completed:
 - Reworked login/register to explain and redirect each role correctly; new customers now return to the storefront and opt into shop onboarding explicitly.
 - Added dedicated Vendor/Admin overview dashboards, shared visual tokens and responsive desktop/mobile navigation.
 - Added Web unit coverage for navigation visibility, customer onboarding access and cross-workspace denial.
+- Added public `/products/[slug]` detail with gallery/fallback, live inventory, quantity/cart action, approved-shop context, reviews and related products; catalog cards now deep-link to it.
+- Added unit coverage for product availability, quantity bounds, valid compare-at discount and safe scalar attributes.
 
 Remaining external integration:
 

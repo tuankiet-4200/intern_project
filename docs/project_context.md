@@ -197,6 +197,10 @@ Phase 5F role-aware frontend UX:
 - Reworked login/register role selection and redirects; Customer registration now returns to the storefront instead of entering vendor onboarding automatically.
 - Added polished responsive Vendor/Admin overview dashboards and shared visual tokens for buttons, fields, cards, focus and reduced motion.
 - Added navigation unit coverage for each role, customer shop onboarding and protected-workspace isolation.
+- Added public `/products/[slug]` detail with image fallback/gallery, price/discount, live available stock, bounded quantity, cart action, shop assurance, review summary/list and related products.
+- Linked catalog product imagery/names to detail while keeping the quick add-to-cart action independent and accessible.
+- Added resilient secondary loading so review/recommendation failure does not hide core product information, plus read-only Admin purchase UX.
+- Added pure helper coverage for available stock, cart quantity bounds, compare-at discounts and safe product attributes.
 
 Governance/context:
 
@@ -291,6 +295,8 @@ Verified:
 - Phase 5F Web lint passed; Web unit suite passed with 3 suites/10 tests after role-aware navigation coverage.
 - Phase 5F Web production build passed with 19 static routes using webpack; default Turbopack build was blocked by the execution environment's internal process-port restriction rather than a source/type error.
 - Local runtime HTTP smoke returned 200 for the redesigned storefront, public products and categories, and confirmed the new storefront content in rendered HTML.
+- Product detail Web lint passed; Web unit suite passed with 4 suites/14 tests; production build passed with 19 static routes plus dynamic `/products/[slug]`.
+- Runtime smoke returned 200 for `/products/modular-desk-lamp`, its public product API and public reviews API using seeded data.
 
 ## Current Risks / Gaps
 
@@ -302,6 +308,7 @@ Verified:
 - The static Turbopack-compatible CSP still requires `script-src 'unsafe-inline'`; strict nonce/SRI CSP is deferred until Next.js supports a stable Turbopack/static-generation path or the project accepts dynamic rendering/webpack trade-offs.
 - Browser hydration/console QA could not run in this session because browser discovery returned no available browser; production build, HTTP/container runtime smoke and automated tests remain green.
 - Visual click-through remains to be rerun when an in-app/Chrome browser is attached; this session again reported no available browser after the required connection troubleshooting.
+- Product detail currently uses client-side data loading, so per-product server metadata/SEO and review pagination controls remain optional UX follow-ups; purchase and authorization correctness are unaffected.
 
 ## Next Recommended Step
 

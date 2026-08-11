@@ -150,7 +150,7 @@ export default function Home() {
         <TrustItem icon={Store} title="Đa dạng cửa hàng" description="Một giỏ hàng, nhiều nhà bán" />
       </section>
 
-      <section className="mt-4">
+      <section id="catalog" className="mt-4 scroll-mt-28">
         <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
           <div>
             <p className="eyebrow">Khám phá marketplace</p>
@@ -208,7 +208,9 @@ function ProductCard({ product, index, adding, onAdd }: { product: Product; inde
 
   return (
     <article className="group overflow-hidden rounded-2xl border border-[var(--line)] bg-white transition duration-200 hover:-translate-y-1 hover:shadow-[var(--shadow-md)]">
-      <div
+      <Link
+        href={`/products/${product.slug}`}
+        aria-label={`Xem chi tiết ${product.name}`}
         className={`relative aspect-[4/3] overflow-hidden bg-gradient-to-br ${gradients[index % gradients.length]} bg-cover bg-center p-4`}
         style={image ? { backgroundImage: `url(${JSON.stringify(image)})` } : undefined}
       >
@@ -217,10 +219,10 @@ function ProductCard({ product, index, adding, onAdd }: { product: Product; inde
           <span className="absolute inset-0 grid place-items-center text-[#244b40]/20"><PackageSearch size={68} strokeWidth={1.2} /></span>
         ) : null}
         <span className="absolute bottom-4 right-4 rounded-lg bg-[#143c32]/90 px-2 py-1 text-[11px] font-bold text-white">Còn {available}</span>
-      </div>
+      </Link>
       <div className="p-4">
         <p className="flex items-center gap-1.5 text-xs font-semibold text-[var(--muted)]"><Store size={13} /> {product.shop.name}</p>
-        <h3 className="mt-2 line-clamp-2 min-h-12 text-base font-extrabold leading-6">{product.name}</h3>
+        <h3 className="mt-2 line-clamp-2 min-h-12 text-base font-extrabold leading-6"><Link href={`/products/${product.slug}`} className="transition hover:text-[var(--accent)]">{product.name}</Link></h3>
         <div className="mt-4 flex items-center justify-between gap-3 border-t border-[var(--line)] pt-4">
           <span className="text-base font-black text-[var(--accent-strong)]">{formatVnd(product.price)}</span>
           <button className="icon-button !border-[var(--accent)] !bg-[var(--accent)] !text-white disabled:opacity-50" disabled={adding || available < 1} onClick={onAdd} aria-label={`Thêm ${product.name} vào giỏ`}>

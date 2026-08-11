@@ -54,7 +54,7 @@ export function navigationFor(surface: AppSurface, role?: AppRole): NavigationIt
 }
 
 export function canAccessPath(pathname: string, role?: AppRole) {
-  if (pathname === '/' || pathname === '/login' || pathname === '/register') return true;
+  if (pathname === '/' || pathname.startsWith('/products/') || pathname === '/login' || pathname === '/register') return true;
   if (!role) return false;
   if (pathname.startsWith('/admin')) return role === 'ADMIN';
   if (pathname === '/vendor/shop') return role === 'CUSTOMER' || role === 'VENDOR';

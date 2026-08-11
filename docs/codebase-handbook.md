@@ -834,6 +834,8 @@ Service chạy song song query items và count, trả `{items, total, page, limi
 
 `GET /products/:slug` dùng cùng visibility rule. Nếu product tồn tại nhưng draft/out-of-stock/shop suspended thì public API trả `null`, không làm lộ item private.
 
+Frontend entry `/products/[slug]` gọi endpoint này bằng slug đã encode. Trang detail không dùng vendor/admin endpoint và không nhận stock/price từ route state, vì refresh hoặc deep link vẫn phải lấy server state mới nhất.
+
 ### 12.2 Vendor tạo product
 
 Endpoint: `POST /shops/:shopId/products`, role VENDOR.
@@ -1734,8 +1736,34 @@ Frontend route gate có unit test tại `lib/navigation.spec.ts` cho menu theo r
 - Add to cart gọi protected `/cart/items`.
 - Nếu chưa login, helper trả lỗi yêu cầu sign in và UI hiển thị link login; success/error không làm mất catalog đang có.
 - Product image dùng URL đầu tiên trong `images`; khi chưa có ảnh, card dùng visual placeholder nhất quán thay vì khối xám trống.
+- Click ảnh hoặc tên product đi tới `/products/[slug]`; nút giỏ hàng vẫn là action riêng, không lồng button trong link.
 
-### 22.5 `/cart`
+### 22.5 `/products/[slug]`
+
+Actor: public visitor, CUSTOMER, VENDOR hoặc ADMIN đang xem marketplace. API entry:
+
+- `GET /products/:slug`: product, shop, category và inventory hiện tại.
+- `GET /products/:productId/reviews?limit=20`: review mới nhất, total và average rating.
+- `GET /products?categoryId=<id>&limit=5`: tối đa bốn product liên quan sau khi loại current product.
+- `POST /cart/items`: protected action khi CUSTOMER/VENDOR thêm số lượng đã chọn.
+
+Frontend flow:
+
+1. `useParams()` lấy slug và encode trước khi ghép URL.
+2. Product là critical request. Response `null` render trạng thái không còn hiển thị; network/API error render retry state.
+3. Sau khi có product ID/category ID, review và related-product request chạy song song bằng `Promise.allSettled()`.
+4. Review failure chỉ hiện cảnh báo/thử lại trong section review, không làm mất product/purchase information. Related failure chỉ bỏ section recommendation.
+5. `availableStock()` tính `max(0, onHand - reserved)`. `normalizeCartQuantity()` giữ quantity là integer trong `[1, available]`; hết hàng trả 0 và button bị khóa.
+6. `discountPercentage()` chỉ hiện compare-at discount khi số hợp lệ và `compareAtPrice > price`.
+7. `productAttributes()` chỉ render scalar string/number/boolean; nested object/array không được stringify thẳng ra UI.
+8. Gallery dùng `images`; không có ảnh thì dùng visual placeholder. Description/attributes, approved-shop card, review empty/list state và related products nằm cùng trang.
+9. Anonymous add-to-cart hiển thị link login. CUSTOMER/VENDOR gọi protected cart API. ADMIN chỉ thấy thông báo read-only và không có purchase control.
+
+Quan trọng: quantity selector và available label chỉ là UX snapshot, không reserve inventory. `CartService` và checkout vẫn revalidate active product, approved shop và current available stock; không được dùng frontend quantity check thay cho no-oversell invariant. Product detail không có write transaction riêng. Review response chỉ lộ reviewer full name, không có email/token.
+
+Unit test `lib/product-detail.spec.ts` kiểm tra available không âm, quantity clamp, compare-at discount và attribute filtering. Navigation test chứng minh detail route public. Trang hiện là client-rendered dynamic route; per-product SEO metadata/server rendering và review pagination UI là cải tiến về sau, không ảnh hưởng purchase correctness.
+
+### 22.6 `/cart`
 
 Load song song:
 
@@ -1757,7 +1785,7 @@ Checkout:
 5. Success -> `/orders?created=<id>`.
 6. Failure -> giữ key để retry cùng payload không duplicate.
 
-### 22.6 `/orders`
+### 22.7 `/orders`
 
 - Load song song customer ParentOrders và reviews của current user.
 - Render từng ShopOrder và OrderItem snapshot.
@@ -1766,13 +1794,13 @@ Checkout:
 - Với delivered item chưa review, hiện form rating/comment; item đã review hiện kết quả.
 - Silent poll mỗi 15 giây và hiển thị last-updated time.
 
-### 22.7 `/vendor/shop`
+### 22.8 `/vendor/shop`
 
 - Load shop của current user.
 - Nếu chưa có, hiện form onboarding.
 - Nếu approved, có thể đi quản lý product.
 
-### 22.8 `/vendor/products`
+### 22.9 `/vendor/products`
 
 - Load `/shops/me` và categories.
 - Chọn shop đầu tiên hiện tại.
@@ -1784,7 +1812,7 @@ Checkout:
 
 Backend ownership/status rules vẫn bắt buộc; disabled button trên UI không phải security control.
 
-### 22.9 `/vendor/orders`
+### 22.10 `/vendor/orders`
 
 - Load shop hiện tại, sau đó load shop orders.
 - Map current status sang next status hợp lệ.
@@ -1792,20 +1820,20 @@ Backend ownership/status rules vẫn bắt buộc; disabled button trên UI khô
 - Reload list sau transition.
 - Silent poll mỗi 15 giây để nhận order/status mới mà không flash loading state.
 
-### 22.10 `/admin/shops`
+### 22.11 `/admin/shops`
 
 - Load pending review queue.
 - Approve/reject.
 - Reload sau mutation.
 
-### 22.11 `/admin/categories`
+### 22.12 `/admin/categories`
 
 - Load flat admin list có parent/count dependencies.
 - Create root/child.
 - Toggle active.
 - Backend reject deactivate nếu còn active child/product.
 
-### 22.12 `/admin/coupons`
+### 22.13 `/admin/coupons`
 
 - Load tối đa 100 campaign cùng approved shops.
 - Form dùng chung create/edit cho scope, shop, type, value, min/cap, total/per-user limit và schedule.
@@ -1814,7 +1842,7 @@ Backend ownership/status rules vẫn bắt buộc; disabled button trên UI khô
 - Edit economic terms sau usage vẫn được UI gửi nhưng backend reject; backend là business source of truth.
 - Activate/deactivate reload server state và hiển thị actionable error.
 
-### 22.13 `/vendor/coupons`
+### 22.14 `/vendor/coupons`
 
 - Load song song `/shops/me` và `/vendor/coupons`; chỉ shop APPROVED xuất hiện trong form.
 - Form create/edit luôn gửi `scope=SHOP`; backend vẫn kiểm tra ownership và không tin shopId từ browser.
@@ -1823,7 +1851,7 @@ Backend ownership/status rules vẫn bắt buộc; disabled button trên UI khô
 - Card cho edit và activate/deactivate, sau mutation reload server state.
 - Vendor chưa có approved shop nhận empty/actionable state thay vì form không dùng được.
 
-### 22.14 `/admin/refunds`
+### 22.15 `/admin/refunds`
 
 - Load `/payments` có order/customer/refund histories.
 - Chỉ payment `PAID` hoặc `PARTIALLY_REFUNDED` được chọn để refund.
@@ -1831,7 +1859,7 @@ Backend ownership/status rules vẫn bắt buộc; disabled button trên UI khô
 - COD yêu cầu checkbox xác nhận offline refund; bank transfer giải thích rõ kết quả sẽ PENDING chờ callback.
 - Sau mutation reload payment/refund state. Amount/reason/provider reference/history được hiển thị để admin audit.
 
-### 22.15 `/notifications`
+### 22.16 `/notifications`
 
 - Load page notification của current session.
 - Toggle unread-only tạo query mới; mark one/all gọi endpoint scoped theo current user.
