@@ -7,6 +7,7 @@ describe('role-aware navigation', () => {
       '/', '/cart', '/orders', '/messages', '/notifications',
     ]);
     expect(navigationFor('vendor', 'VENDOR').map((item) => item.href)).toContain('/vendor/products');
+    expect(navigationFor('admin', 'ADMIN').map((item) => item.href)).toContain('/admin/users');
     expect(navigationFor('admin', 'ADMIN').map((item) => item.href)).toContain('/admin/refunds');
     expect(navigationFor('admin', 'ADMIN').map((item) => item.href)).not.toContain('/cart');
     expect(navigationFor('customer', 'ADMIN').map((item) => item.href)).toEqual(['/', '/notifications']);

@@ -49,6 +49,7 @@ describe('Complete commerce happy path e2e', () => {
       const aggregateIds = [shopId, parentOrderId, shopOrderId].filter((id): id is string => Boolean(id));
       await prisma.notification.deleteMany({ where: { outboxEvent: { aggregateId: { in: aggregateIds } } } });
       await prisma.outboxEvent.deleteMany({ where: { aggregateId: { in: aggregateIds } } });
+      await prisma.adminAuditLog.deleteMany({ where: { actorId: { in: userIds } } });
       if (parentOrderId) await prisma.parentOrder.deleteMany({ where: { id: parentOrderId } });
       if (productId) await prisma.cartItem.deleteMany({ where: { productId } });
       if (productId) await prisma.product.deleteMany({ where: { id: productId } });

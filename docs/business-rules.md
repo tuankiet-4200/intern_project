@@ -6,12 +6,19 @@
 - VENDOR quan ly shop, product, inventory va shop orders.
 - ADMIN duyet shop, quan ly category, moderation user/shop/product.
 - Mot user co the co vai tro VENDOR khi da tao shop duoc duyet.
+- ADMIN khong duoc tu khoa tai khoan cua chinh minh va khong duoc khoa ADMIN dang hoat dong cuoi cung.
+- Khoa tai khoan phai co ly do, revoke moi refresh session va dinh chi cac shop APPROVED cua user trong cung transaction.
+- Mo khoa user khong tu dong khoi phuc shop; ADMIN phai review tung shop de tranh mo lai ngoai y muon.
+- JWT hop le ve chu ky/thoi han van bi tu choi neu user da bi khoa; role hien tai luon doc lai tu database.
+- Moi thay doi trang thai user/shop cua ADMIN phai ghi audit actor, target, before, after, reason va thoi gian.
 
 ## Shop
 
 - Shop moi tao co trang thai `PENDING_REVIEW`.
 - Chi shop `APPROVED` moi duoc ban san pham public.
 - `SUSPENDED` khong duoc tao product moi va khong nhan order moi.
+- Shop chi chuyen theo cac canh hop le: `PENDING_REVIEW -> APPROVED|REJECTED`, `APPROVED -> SUSPENDED`, `SUSPENDED -> APPROVED|REJECTED`, `REJECTED -> PENDING_REVIEW`.
+- Reject hoac suspend shop bat buoc co ly do; khong approve shop khi tai khoan owner dang BANNED.
 
 ## Product & Inventory
 

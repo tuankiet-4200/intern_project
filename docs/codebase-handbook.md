@@ -152,7 +152,7 @@ Không có state-management library toàn cục. Mỗi page quản lý:
 
 - Customer storefront: header mua sắm, catalog, giỏ hàng, đơn mua và thông báo.
 - Vendor workspace: sidebar riêng cho cửa hàng, sản phẩm, đơn bán và khuyến mãi.
-- Admin workspace: sidebar riêng cho duyệt shop, category, coupon và refund.
+- Admin workspace: sidebar riêng cho user, shop, category, coupon và refund.
 
 Việc tách shell giúp user không nhìn thấy một menu trộn lẫn mọi actor. Đây là lớp UX; JWT guard, RolesGuard và ownership check ở API vẫn là lớp authorization bắt buộc.
 
@@ -435,7 +435,7 @@ Access token payload:
 }
 ```
 
-`JwtStrategy` đọc `Authorization: Bearer <token>`, verify secret/expiry, rồi gán payload vào `request.user`.
+`JwtStrategy` đọc `Authorization: Bearer <token>`, verify secret/expiry, sau đó đọc lại user hiện tại từ PostgreSQL. User không còn tồn tại hoặc đã `BANNED` nhận `401` ngay cả khi JWT chưa hết hạn; role gán vào `request.user` cũng lấy từ database thay vì claim cũ. Vì vậy approve shop có thể nâng role CUSTOMER thành VENDOR mà request kế tiếp không phải chờ access token cũ hết hạn, đồng thời thao tác ban có hiệu lực ngay. Đổi lại, mọi protected request có thêm một identity query; khi scale phải theo dõi latency/connection pool và chỉ cache nếu vẫn bảo đảm revocation tức thời.
 
 `@CurrentUser()` lấy `request.user` để controller truyền `sub` xuống service.
 
@@ -751,6 +751,25 @@ Map dùng Leaflet, tile `https://tile.openstreetmap.org/{z}/{x}/{y}.png` và att
 
 `AddressForm` đã là form chịu trách nhiệm lưu địa chỉ, vì vậy `AddressMapPicker` tuyệt đối không render thêm thẻ `<form>` bên trong. Thanh tìm kiếm map dùng container thường và nút `type="button"`; handler `keydown` chặn default khi Enter rồi gọi search. Nếu lồng form hoặc bỏ `type="button"`, browser có thể submit form cha, reload trang và không chạy/không hiển thị kết quả geocoder. Regression test render component thành static markup để khóa invariant không có nested form này.
 
+### 9.6 Admin quản trị user
+
+Ba endpoint `/admin/users` chỉ cho `ADMIN`:
+
+- `GET /admin/users`: search tên/email/phone, filter role/status và paginate; response dùng `SAFE_USER_SELECT`, tuyệt đối không trả `passwordHash`, refresh session hay credential.
+- `GET /admin/users/:userId`: thêm shop sở hữu, thống kê và 20 audit record gần nhất.
+- `PATCH /admin/users/:userId/status`: chỉ nhận `ACTIVE|BANNED`; ban bắt buộc lý do.
+
+Luồng ban chạy trong một transaction:
+
+1. Chặn Admin tự ban chính mình và chặn ban Admin active cuối cùng.
+2. Tìm mọi shop `APPROVED` của target.
+3. Đổi user sang `BANNED`.
+4. Revoke mọi RefreshSession chưa revoke.
+5. Chuyển các shop trên sang `SUSPENDED`.
+6. Ghi audit cho user, trong `after` có status mới và danh sách shop bị đình chỉ; đồng thời ghi một shop audit cho từng shop tự động chuyển trạng thái để lịch sử shop không bị khuyết.
+
+Access JWT cũ bị chặn bởi database status check trong `JwtStrategy`. Khi mở khóa, hệ thống chỉ đổi user về `ACTIVE`; không tự khôi phục shop vì mỗi shop cần được Admin rà soát riêng. Audit là append-only operational record; UI không cung cấp thao tác xóa. Nếu sau này thêm xóa account, phải quyết định retention/anonymization cho audit trước, không cascade âm thầm.
+
 ---
 
 ## 10. Luồng shop onboarding
@@ -769,21 +788,18 @@ Tạo shop không tự biến user thành vendor.
 
 Frontend `/vendor/shop` phải giữ `const formElement = event.currentTarget` trước request bất đồng bộ. React có thể đưa `event.currentTarget` về `null` sau `await`; vì vậy gọi `event.currentTarget.reset()` sau API sẽ báo `Cannot read properties of null (reading 'reset')` dù shop đã được tạo thành công. Helper `lib/form-submission.ts#submitAndReset` nhận form reference đã capture, chỉ reset sau khi API resolve và giữ nguyên dữ liệu khi API reject. Nút submit bị disable trong lúc gửi để hạn chế double-click; sau success trang reload `/shops/me` để request `PENDING_REVIEW` xuất hiện ngay. Admin category create dùng cùng helper vì có cùng async form lifecycle.
 
-### 10.2 Admin review
+### 10.2 Admin quản trị shop
 
-- `GET /shops/admin/review-queue`: chỉ ADMIN, lấy shop pending theo thứ tự cũ trước.
-- `PATCH /shops/:shopId/review`: chỉ ADMIN.
+API chính:
 
-Allowed review target: `APPROVED`, `REJECTED`, `SUSPENDED`.
+- `GET /admin/shops`: tìm theo tên/slug/tên hoặc email owner, filter status và paginate.
+- `GET /admin/shops/:shopId`: trả owner safe fields, thống kê, 20 product gần nhất và audit history.
+- `PATCH /admin/shops/:shopId/status`: chuyển trạng thái có kiểm soát.
+- Hai endpoint `/shops/admin/review-queue` và `/shops/:shopId/review` được giữ tương thích cho client cũ; mutation cũ vẫn đi qua cùng service/audit.
 
-Khi approve, transaction:
+Đồ thị transition là whitelist: `PENDING_REVIEW -> APPROVED|REJECTED`, `APPROVED -> SUSPENDED`, `SUSPENDED -> APPROVED|REJECTED`, `REJECTED -> PENDING_REVIEW`. Reject/suspend bắt buộc lý do. Approve bị chặn nếu owner đang `BANNED`.
 
-1. Update Shop status.
-2. Nếu owner đang là CUSTOMER, update role thành VENDOR.
-
-Nếu user đã VENDOR thì `updateMany` không làm gì, vẫn an toàn.
-
-Lưu ý access JWT cũ chứa role cũ. Sau approve, user có thể cần login/refresh để token mới phản ánh role VENDOR.
+Khi approve, transaction update shop, nâng CUSTOMER owner thành VENDOR, ghi `AdminAuditLog` và enqueue notification. Audit lưu actor, target, trạng thái trước/sau, lý do và timestamp. JWT strategy đọc role hiện tại từ database nên request kế tiếp của owner nhìn thấy role VENDOR; client vẫn nên refresh session để UI session hiển thị role mới ngay.
 
 ### 10.3 Public shop
 
@@ -1898,18 +1914,28 @@ Integration test catalog kiểm tra create/update mọi merchandising field, own
 
 ### 22.11 `/admin/shops`
 
-- Load pending review queue.
-- Approve/reject.
-- Reload sau mutation.
+- Load `/admin/shops` theo trang, từ khóa và status; không chỉ lấy pending queue.
+- Mỗi card hiển thị owner, trạng thái account, số product/order/chat, AI flag và các action hợp lệ từ trạng thái hiện tại.
+- Detail panel tải riêng owner, thống kê, inventory tóm tắt và audit history để list payload vẫn gọn.
+- Approve/reject/suspend/restore đều đi qua confirmation dialog; reject/suspend buộc nhập lý do tối thiểu năm ký tự.
+- Sau mutation, reload cả list và detail đang mở để UI không giữ trạng thái cũ.
 
-### 22.12 `/admin/categories`
+### 22.12 `/admin/users`
+
+- Search tên/email/phone; filter role và account status; paginate 20 row.
+- Hiển thị safe identity fields, role, số shop/order/review; current Admin được đánh dấu và không có nút tự khóa.
+- Detail panel tải shop sở hữu, thống kê và audit history khi người vận hành yêu cầu.
+- Ban dùng dialog bắt buộc lý do; mở khóa vẫn xác nhận và giải thích shop không tự khôi phục.
+- Frontend chỉ hướng dẫn workflow. Self-ban, last-admin, stale JWT, session revocation và shop suspension đều được backend enforce.
+
+### 22.13 `/admin/categories`
 
 - Load flat admin list có parent/count dependencies.
 - Create root/child.
 - Toggle active.
 - Backend reject deactivate nếu còn active child/product.
 
-### 22.13 `/admin/coupons`
+### 22.14 `/admin/coupons`
 
 - Load tối đa 100 campaign cùng approved shops.
 - Form dùng chung create/edit cho scope, shop, type, value, min/cap, total/per-user limit và schedule.
@@ -1918,7 +1944,7 @@ Integration test catalog kiểm tra create/update mọi merchandising field, own
 - Edit economic terms sau usage vẫn được UI gửi nhưng backend reject; backend là business source of truth.
 - Activate/deactivate reload server state và hiển thị actionable error.
 
-### 22.14 `/vendor/coupons`
+### 22.15 `/vendor/coupons`
 
 - Load song song `/shops/me` và `/vendor/coupons`; chỉ shop APPROVED xuất hiện trong form.
 - Form create/edit luôn gửi `scope=SHOP`; backend vẫn kiểm tra ownership và không tin shopId từ browser.
@@ -1927,7 +1953,7 @@ Integration test catalog kiểm tra create/update mọi merchandising field, own
 - Card cho edit và activate/deactivate, sau mutation reload server state.
 - Vendor chưa có approved shop nhận empty/actionable state thay vì form không dùng được.
 
-### 22.15 `/admin/refunds`
+### 22.16 `/admin/refunds`
 
 - Load `/payments` có order/customer/refund histories.
 - Chỉ payment `PAID` hoặc `PARTIALLY_REFUNDED` được chọn để refund.
@@ -1935,7 +1961,7 @@ Integration test catalog kiểm tra create/update mọi merchandising field, own
 - COD yêu cầu checkbox xác nhận offline refund; bank transfer giải thích rõ kết quả sẽ PENDING chờ callback.
 - Sau mutation reload payment/refund state. Amount/reason/provider reference/history được hiển thị để admin audit.
 
-### 22.16 `/notifications`
+### 22.17 `/notifications`
 
 - Load page notification của current session.
 - Toggle unread-only tạo query mới; mark one/all gọi endpoint scoped theo current user.
@@ -1965,11 +1991,17 @@ Mọi path dưới đây có prefix `/api`.
 | POST | `/users/me/addresses` | Authenticated | Create address |
 | PATCH | `/users/me/addresses/:id` | Owner | Update/default address |
 | DELETE | `/users/me/addresses/:id` | Owner | Delete address |
+| GET | `/admin/users` | Admin | Search/filter/paginate users |
+| GET | `/admin/users/:id` | Admin | User detail and audit history |
+| PATCH | `/admin/users/:id/status` | Admin | Lock/unlock account |
 | GET | `/shops` | Public | Approved shops |
 | POST | `/shops` | Customer/Vendor | Shop request |
 | GET | `/shops/me` | Customer/Vendor | Own shops |
 | GET | `/shops/admin/review-queue` | Admin | Pending shops |
 | PATCH | `/shops/:id/review` | Admin | Review shop |
+| GET | `/admin/shops` | Admin | Search/filter/paginate shops |
+| GET | `/admin/shops/:id` | Admin | Shop detail and audit history |
+| PATCH | `/admin/shops/:id/status` | Admin | Review/suspend/restore shop |
 | GET | `/categories` | Public | Active category tree |
 | POST | `/categories` | Admin | Create category |
 | GET | `/admin/categories` | Admin | Admin category list |

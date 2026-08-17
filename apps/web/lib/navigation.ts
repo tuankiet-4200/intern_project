@@ -2,7 +2,7 @@ import type { SessionUser } from './api';
 
 export type AppRole = SessionUser['role'];
 export type AppSurface = 'customer' | 'vendor' | 'admin' | 'auth';
-export type NavigationIcon = 'home' | 'cart' | 'orders' | 'bell' | 'message' | 'shop' | 'products' | 'coupon' | 'category' | 'refund';
+export type NavigationIcon = 'home' | 'cart' | 'orders' | 'bell' | 'message' | 'shop' | 'products' | 'coupon' | 'category' | 'refund' | 'users';
 
 export type NavigationItem = {
   href: string;
@@ -30,7 +30,8 @@ const VENDOR_NAV: NavigationItem[] = [
 
 const ADMIN_NAV: NavigationItem[] = [
   { href: '/admin', label: 'Tổng quan', icon: 'home', exact: true },
-  { href: '/admin/shops', label: 'Duyệt cửa hàng', icon: 'shop' },
+  { href: '/admin/users', label: 'Người dùng', icon: 'users' },
+  { href: '/admin/shops', label: 'Cửa hàng', icon: 'shop' },
   { href: '/admin/categories', label: 'Danh mục', icon: 'category' },
   { href: '/admin/coupons', label: 'Mã giảm giá', icon: 'coupon' },
   { href: '/admin/refunds', label: 'Hoàn tiền', icon: 'refund' },

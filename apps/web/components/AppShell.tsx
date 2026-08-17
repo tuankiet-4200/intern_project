@@ -16,6 +16,7 @@ import {
   Store,
   Tags,
   UserRound,
+  UsersRound,
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -51,6 +52,7 @@ const ICONS: Record<NavigationIcon, typeof Home> = {
   coupon: Tags,
   category: FolderTree,
   refund: CircleDollarSign,
+  users: UsersRound,
 };
 
 export function AppShell({ children }: { children: ReactNode }) {

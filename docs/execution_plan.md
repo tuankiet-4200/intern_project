@@ -311,6 +311,30 @@ Acceptance:
 - AI receives no product catalog outside the target shop and may not invent missing commercial facts.
 - DeepSeek failure never rolls back or deletes the customer's message.
 
+## Phase 7 - Admin User & Shop Governance
+
+Status: complete.
+
+Done:
+
+- Added paginated Admin user search/filter/detail APIs without exposing password hashes or refresh tokens.
+- Added audited account lock/unlock; self-lock and locking the last active Admin are rejected.
+- Account lock atomically revokes refresh sessions and suspends every approved shop owned by that account.
+- Hardened JWT validation to reload current role/status so a banned account loses API access immediately even with an unexpired access token.
+- Added paginated Admin shop search/filter/detail APIs and explicit review/suspend/restore transitions.
+- Added durable `AdminAuditLog` rows for every user/shop status mutation.
+- Replaced the pending-only Admin shop page and added a dedicated Admin user page with filters, detail panels, confirmation dialogs and Vietnamese operational states.
+- Added Admin navigation/dashboard entries plus unit, PostgreSQL integration and regression coverage.
+
+Acceptance:
+
+- Non-Admin requests cannot access any `/admin/users` or `/admin/shops` endpoint.
+- Sensitive list/detail responses expose only approved safe fields.
+- Ban/reject/suspend requires an operational reason and creates an audit record.
+- Banned accounts cannot continue using an existing access JWT; their refresh sessions are revoked.
+- Re-enabling an account does not silently restore its shops.
+- Invalid shop status transitions and approval of a banned owner are rejected.
+
 ## Backlog
 
 Do not implement unless the user explicitly changes scope:

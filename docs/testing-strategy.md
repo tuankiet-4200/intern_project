@@ -90,6 +90,16 @@ Shop chat and AI:
 - DeepSeek credential is sent only in the Authorization header and never serialized into the request body/client bundle.
 - Realtime merge deduplicates events and preserves chronological display order; polling remains a fallback.
 
+Admin governance:
+
+- User/shop search combines text, status and role filters with deterministic pagination.
+- Admin cannot change their own status or ban the last active Admin.
+- Banning a user atomically revokes active refresh sessions, suspends approved shops and writes one audit record.
+- Re-enabling a user leaves suspended shops unchanged.
+- JWT validation rejects a banned account immediately and reads the current database role rather than trusting stale token claims.
+- Shop approval promotes a customer owner to Vendor; reject/suspend requires a reason and every transition is audited.
+- Frontend helpers expose only valid next transitions and flag punitive actions as reason-required.
+
 Infrastructure/request protection:
 
 - Memory limiter returns structured 429 responses and bypasses health probes.

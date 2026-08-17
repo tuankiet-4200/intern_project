@@ -1,4 +1,5 @@
-import { IsEnum, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsEnum, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength } from 'class-validator';
 import { ShopStatus } from '@prisma/client';
 
 export class CreateShopDto {
@@ -24,4 +25,36 @@ export class CreateShopDto {
 export class ReviewShopDto {
   @IsEnum(ShopStatus)
   status!: ShopStatus;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(5)
+  @MaxLength(500)
+  reason?: string;
+}
+
+export class AdminShopQueryDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  search?: string;
+
+  @IsOptional()
+  @IsEnum(ShopStatus)
+  status?: ShopStatus;
+
+  @IsOptional()
+  @IsUUID()
+  ownerId?: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page = 1;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit = 20;
 }

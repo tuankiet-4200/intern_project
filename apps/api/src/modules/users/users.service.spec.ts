@@ -1,4 +1,5 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { AccountStatus } from '@prisma/client';
 import { describe, expect, it, jest } from '@jest/globals';
 import { UsersService } from './users.service';
 
@@ -64,5 +65,14 @@ describe('UsersService', () => {
     await expect(service.updateAddress('user-2', 'address-1', { city: 'Hanoi' })).rejects.toBeInstanceOf(
       NotFoundException,
     );
+  });
+
+  it('does not let an admin ban their own account', async () => {
+    const service = new UsersService({} as never);
+
+    await expect(service.adminUpdateStatus('admin-1', 'admin-1', {
+      status: AccountStatus.BANNED,
+      reason: 'Self ban attempt',
+    })).rejects.toBeInstanceOf(ForbiddenException);
   });
 });

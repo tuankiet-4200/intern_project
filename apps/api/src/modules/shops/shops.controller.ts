@@ -40,7 +40,7 @@ export class ShopsController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
   @Patch(':shopId/review')
-  review(@Param('shopId') shopId: string, @Body() dto: ReviewShopDto) {
-    return this.shops.review(shopId, dto);
+  review(@CurrentUser() admin: AuthUser, @Param('shopId') shopId: string, @Body() dto: ReviewShopDto) {
+    return this.shops.adminUpdateStatus(admin.sub, shopId, dto);
   }
 }

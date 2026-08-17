@@ -227,6 +227,15 @@ Phase 6 shop live chat and AI:
 - Kept customer messages durable when AI generation fails and tracked `PENDING`, `COMPLETED` or `FAILED` on the source message.
 - Added migration `20260817111452_phase6_shop_chat_ai`, demo conversation seed, prompt/unit tests and PostgreSQL ownership/idempotency integration coverage.
 
+Phase 7 admin governance:
+
+- Added complete Admin user and shop list/search/filter/detail APIs with safe field projections and pagination.
+- Added account lock/unlock safeguards, refresh-session revocation, immediate JWT account-status enforcement and automatic approved-shop suspension.
+- Added explicit shop review/suspend/restore transition rules and blocked approval for banned owners.
+- Added durable `AdminAuditLog` records for all user/shop status changes.
+- Added `/admin/users` and rebuilt `/admin/shops` with Vietnamese filters, detail/audit panels and guarded confirmation dialogs.
+- Added migration `20260817115846_phase7_admin_governance` plus JWT, helper and PostgreSQL governance coverage.
+
 Governance/context:
 
 - Added `.agents/senior-tech-lead.rules.md`.
@@ -340,10 +349,16 @@ Verified:
 - Production dependency audit after adding Socket.IO client/server packages returned zero vulnerabilities.
 - Fixed Vendor shop onboarding's post-success `Cannot read properties of null (reading 'reset')`: the form element is captured before `await`, reset only after successful creation, submit is guarded against double-click, and the same latent lifecycle bug was removed from Admin category creation. Web regression now has 11 suites/33 tests.
 - Browser click-through for the form fix could not run because browser discovery again returned no connected instance; lint/unit/build verification is used. Because the old failure happened after the successful POST, a request created before the reset error remains persisted and appears after reload.
+- Phase 7 migration applied locally and Prisma Client regenerated.
+- Phase 7 API regression passed: 22 suites, 49 tests; API lint and production build passed.
+- Phase 7 Web regression passed: 12 suites, 36 tests; Web lint passed without warnings and webpack production build generated 24 routes including `/admin/users` and `/admin/shops`.
+- Phase 7 HTTP E2E regression passed: 3 suites, 4 tests. Local runtime returned 200 for both Admin pages and for paginated Admin user/shop APIs; the same endpoints returned 403 to the demo customer.
+- Phase 7 visual Browser click-through could not run because no connected browser instance was available after connection retry; route compilation, runtime HTTP smoke and automated API/Web tests remain green.
 
 ## Current Risks / Gaps
 
 - Bank transfer has a signed provider-neutral webhook, but a provider-specific payload adapter/API reconciliation job is still pending.
+- Admin audit rows are retained indefinitely and deliberately restrict deletion of their actor account; define retention/anonymization and legal-support policy before adding permanent user deletion.
 - Redis is now a critical API dependency when `RATE_LIMIT_FAILURE_MODE=closed`; production needs managed Redis high availability, capacity monitoring and an intentional outage policy.
 - Repository CD/drill automation is implemented, but real staging execution still needs the chosen hosting/database, GitHub Environment URL/secrets and rollout webhook.
 - Notification inbox is persisted and transactionally reliable; external email/push delivery is not part of the current product scope.
@@ -364,7 +379,7 @@ Verified:
 
 ## Next Recommended Step
 
-The agreed application baseline, including shop chat and catalog-grounded AI, is complete. Remaining follow-up depends on external choices/access or scale requirements:
+The agreed application baseline, including shop chat, catalog-grounded AI and Admin user/shop governance, is complete. Remaining follow-up depends on external choices/access or scale requirements:
 
 1. Select and integrate the bank-transfer provider adapter/reconciliation job.
 2. Configure `DEEPSEEK_API_KEY` in the API secret manager, enable AI per shop and verify answers against staging catalog data.
