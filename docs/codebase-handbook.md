@@ -1,6 +1,6 @@
 # Codebase Handbook - Multi-Vendor Commerce Platform
 
-Last updated: 2026-08-12
+Last updated: 2026-08-17
 
 Tài liệu này giải thích code và luồng chạy hiện tại của dự án cho developer mới, đặc biệt là fresher. Đây không phải tài liệu ý tưởng: nội dung bám theo source code đến Phase 5F role-aware frontend completion hiện tại.
 
@@ -834,7 +834,7 @@ Service chạy song song query items và count, trả `{items, total, page, limi
 
 `GET /products/:slug` dùng cùng visibility rule. Nếu product tồn tại nhưng draft/out-of-stock/shop suspended thì public API trả `null`, không làm lộ item private.
 
-Frontend entry `/products/[slug]` gọi endpoint này bằng slug đã encode. Trang detail không dùng vendor/admin endpoint và không nhận stock/price từ route state, vì refresh hoặc deep link vẫn phải lấy server state mới nhất.
+Frontend entry `/products/[slug]` gọi endpoint này bằng slug đã encode. `productDetailPath()` encode slug khi tạo link; `productDetailApiPath()` decode route param an toàn rồi encode đúng một lần khi gọi API. Cặp helper này tương thích cả slug chuẩn dạng `modular-desk-lamp` lẫn dữ liệu cũ có khoảng trắng/Unicode, đồng thời tránh lỗi `%20` bị encode lần hai thành `%2520`. Trang detail không dùng vendor/admin endpoint và không nhận stock/price từ route state, vì refresh hoặc deep link vẫn phải lấy server state mới nhất.
 
 ### 12.2 Vendor tạo product
 
@@ -1764,7 +1764,7 @@ Actor: public visitor, CUSTOMER, VENDOR hoặc ADMIN đang xem marketplace. API 
 
 Frontend flow:
 
-1. `useParams()` lấy slug và encode trước khi ghép URL.
+1. `useParams()` lấy route param; `productDetailApiPath()` chuẩn hóa param đã encode hoặc đã decode thành đúng một API path encode một lần. Home card và related card đều dùng `productDetailPath()` thay vì nội suy slug thô.
 2. Product là critical request. Response `null` render trạng thái không còn hiển thị; network/API error render retry state.
 3. Sau khi có product ID/category ID, review và related-product request chạy song song bằng `Promise.allSettled()`.
 4. Review failure chỉ hiện cảnh báo/thử lại trong section review, không làm mất product/purchase information. Related failure chỉ bỏ section recommendation.
@@ -1776,7 +1776,7 @@ Frontend flow:
 
 Quan trọng: quantity selector và available label chỉ là UX snapshot, không reserve inventory. `CartService` và checkout vẫn revalidate active product, approved shop và current available stock; không được dùng frontend quantity check thay cho no-oversell invariant. Product detail không có write transaction riêng. Review response chỉ lộ reviewer full name, không có email/token.
 
-Unit test `lib/product-detail.spec.ts` kiểm tra available không âm, quantity clamp, compare-at discount và attribute filtering. Navigation test chứng minh detail route public. Trang hiện là client-rendered dynamic route; per-product SEO metadata/server rendering và review pagination UI là cải tiến về sau, không ảnh hưởng purchase correctness.
+Unit test `lib/product-detail.spec.ts` kiểm tra available không âm, quantity clamp, compare-at discount, attribute filtering và regression slug có khoảng trắng/Unicode không bị double-encode. Navigation test chứng minh detail route public. Trang hiện là client-rendered dynamic route; per-product SEO metadata/server rendering và review pagination UI là cải tiến về sau, không ảnh hưởng purchase correctness.
 
 ### 22.6 `/cart`
 

@@ -2,7 +2,14 @@
 
 import { AppShell } from '@/components/AppShell';
 import { apiRequest, formatVnd, getSession, subscribeSession } from '@/lib/api';
-import { availableStock, discountPercentage, normalizeCartQuantity, productAttributes } from '@/lib/product-detail';
+import {
+  availableStock,
+  discountPercentage,
+  normalizeCartQuantity,
+  productAttributes,
+  productDetailApiPath,
+  productDetailPath,
+} from '@/lib/product-detail';
 import {
   ArrowLeft,
   Check,
@@ -78,7 +85,7 @@ export default function ProductDetailPage() {
     setNotFound(false);
     setReviewsUnavailable(false);
     try {
-      const productResult = await apiRequest<Product | null>(`/products/${encodeURIComponent(slug)}`);
+      const productResult = await apiRequest<Product | null>(productDetailApiPath(slug));
       if (!productResult) {
         setProduct(null);
         setNotFound(true);
@@ -281,5 +288,5 @@ function ReviewCard({ review }: { review: Review }) {
 function RelatedProductCard({ product, index }: { product: RelatedProduct; index: number }) {
   const gradients = ['from-[#d9eee5] to-[#f1d4ad]', 'from-[#e3e6f6] to-[#c8d8ea]', 'from-[#f5dfd2] to-[#d9e9df]', 'from-[#dceada] to-[#ead8e9]'];
   const image = product.images?.[0];
-  return <Link href={`/products/${product.slug}`} className="group overflow-hidden rounded-2xl border border-[var(--line)] bg-white transition hover:-translate-y-1 hover:shadow-[var(--shadow-md)]"><div className={`relative aspect-[4/3] bg-gradient-to-br ${gradients[index % gradients.length]} bg-cover bg-center`} style={image ? { backgroundImage: `url(${JSON.stringify(image)})` } : undefined}>{!image ? <span className="absolute inset-0 grid place-items-center text-[#244b40]/20"><PackageSearch size={48} /></span> : null}</div><div className="p-4"><p className="truncate text-xs font-semibold text-[var(--muted)]">{product.shop.name}</p><h3 className="mt-2 line-clamp-2 min-h-12 font-extrabold leading-6">{product.name}</h3><p className="mt-3 font-black text-[var(--accent-strong)]">{formatVnd(product.price)}</p></div></Link>;
+  return <Link href={productDetailPath(product.slug)} className="group overflow-hidden rounded-2xl border border-[var(--line)] bg-white transition hover:-translate-y-1 hover:shadow-[var(--shadow-md)]"><div className={`relative aspect-[4/3] bg-gradient-to-br ${gradients[index % gradients.length]} bg-cover bg-center`} style={image ? { backgroundImage: `url(${JSON.stringify(image)})` } : undefined}>{!image ? <span className="absolute inset-0 grid place-items-center text-[#244b40]/20"><PackageSearch size={48} /></span> : null}</div><div className="p-4"><p className="truncate text-xs font-semibold text-[var(--muted)]">{product.shop.name}</p><h3 className="mt-2 line-clamp-2 min-h-12 font-extrabold leading-6">{product.name}</h3><p className="mt-3 font-black text-[var(--accent-strong)]">{formatVnd(product.price)}</p></div></Link>;
 }

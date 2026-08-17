@@ -1,6 +1,6 @@
 # Project Context
 
-Last updated: 2026-08-12
+Last updated: 2026-08-17
 
 ## Project Identity
 
@@ -206,6 +206,7 @@ Phase 5F role-aware frontend UX:
 - Rebuilt `/vendor/products` authoring with complete create/edit sections, image URL previews/removal, cover ordering, attribute rows and clearer stock-ledger separation.
 - Extended Web image CSP for HTTPS product images and development-only HTTP previews; scripts/connections remain restricted.
 - Added Catalog PostgreSQL coverage for merchandising persistence/validation and Web helper coverage for image/attribute form normalization.
+- Fixed public product-detail navigation for legacy slugs containing spaces/Unicode by centralizing link encoding and normalizing Next.js route params before API requests, preventing `%20` from becoming `%2520`.
 
 Governance/context:
 
@@ -304,6 +305,7 @@ Verified:
 - Runtime smoke returned 200 for `/products/modular-desk-lamp`, its public product API and public reviews API using seeded data.
 - Expanded Catalog integration test and full API regression passed against PostgreSQL/Redis: 17 suites, 35 tests.
 - API/Web lint passed; Web unit suite passed with 5 suites/20 tests; API and Web production builds passed for product authoring/card repair.
+- Product slug routing regression passed with 5 Web suites/22 tests and Web lint; Web production build passed with the dynamic detail route, the exact MacBook API URL returned its public product, and the production frontend route returned HTTP 200.
 - Runtime HTTP smoke returned 200 for catalog and Vendor products; a fresh production Web process confirmed `img-src 'self' blob: data: https:`. The pre-existing dev process retains its old CSP until restarted because Next config is startup-loaded.
 
 ## Current Risks / Gaps
@@ -318,6 +320,7 @@ Verified:
 - Visual click-through remains to be rerun when an in-app/Chrome browser is attached; this session again reported no available browser after the required connection troubleshooting.
 - Product detail currently uses client-side data loading, so per-product server metadata/SEO and review pagination controls remain optional UX follow-ups; purchase and authorization correctness are unaffected.
 - Product images currently use Vendor-managed URLs. Direct binary upload remains pending selection of object storage/CDN and a signed upload/scanning policy; container filesystem/base64 persistence is intentionally not used.
+- Existing products may contain human-readable slugs with spaces/Unicode. Public routing now supports them safely; enforcing canonical lowercase hyphenated slugs would require an explicit compatibility/redirect migration rather than silently changing live URLs.
 - Browser discovery again returned no available in-app/Chrome instance, so the card fix was verified by the block/aspect-ratio source invariant, builds/tests and HTTP runtime rather than an automated screenshot.
 
 ## Next Recommended Step

@@ -21,3 +21,17 @@ export function productAttributes(value: unknown) {
     .filter((entry): entry is [string, string | number | boolean] => ['string', 'number', 'boolean'].includes(typeof entry[1]))
     .map(([key, attribute]) => ({ key, value: String(attribute) }));
 }
+
+export function productDetailPath(slug: string) {
+  return `/products/${encodeURIComponent(slug)}`;
+}
+
+export function productDetailApiPath(routeParam: string) {
+  let slug = routeParam;
+  try {
+    slug = decodeURIComponent(routeParam);
+  } catch {
+    // Keep malformed or already-decoded percent characters as literal slug content.
+  }
+  return `/products/${encodeURIComponent(slug)}`;
+}

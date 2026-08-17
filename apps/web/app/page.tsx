@@ -2,6 +2,7 @@
 
 import { AppShell } from '@/components/AppShell';
 import { apiRequest, formatVnd } from '@/lib/api';
+import { productDetailPath } from '@/lib/product-detail';
 import {
   Check,
   PackageSearch,
@@ -209,7 +210,7 @@ function ProductCard({ product, index, adding, onAdd }: { product: Product; inde
   return (
     <article className="group overflow-hidden rounded-2xl border border-[var(--line)] bg-white transition duration-200 hover:-translate-y-1 hover:shadow-[var(--shadow-md)]">
       <Link
-        href={`/products/${product.slug}`}
+        href={productDetailPath(product.slug)}
         aria-label={`Xem chi tiết ${product.name}`}
         className={`relative block aspect-[4/3] overflow-hidden bg-gradient-to-br ${gradients[index % gradients.length]} bg-cover bg-center p-4`}
         style={image ? { backgroundImage: `url(${JSON.stringify(image)})` } : undefined}
@@ -222,7 +223,7 @@ function ProductCard({ product, index, adding, onAdd }: { product: Product; inde
       </Link>
       <div className="p-4">
         <p className="flex items-center gap-1.5 text-xs font-semibold text-[var(--muted)]"><Store size={13} /> {product.shop.name}</p>
-        <h3 className="mt-2 line-clamp-2 min-h-12 text-base font-extrabold leading-6"><Link href={`/products/${product.slug}`} className="transition hover:text-[var(--accent)]">{product.name}</Link></h3>
+        <h3 className="mt-2 line-clamp-2 min-h-12 text-base font-extrabold leading-6"><Link href={productDetailPath(product.slug)} className="transition hover:text-[var(--accent)]">{product.name}</Link></h3>
         <div className="mt-4 flex items-center justify-between gap-3 border-t border-[var(--line)] pt-4">
           <span className="text-base font-black text-[var(--accent-strong)]">{formatVnd(product.price)}</span>
           <button className="icon-button !border-[var(--accent)] !bg-[var(--accent)] !text-white disabled:opacity-50" disabled={adding || available < 1} onClick={onAdd} aria-label={`Thêm ${product.name} vào giỏ`}>

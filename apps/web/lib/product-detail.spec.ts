@@ -1,5 +1,12 @@
 import { describe, expect, it } from '@jest/globals';
-import { availableStock, discountPercentage, normalizeCartQuantity, productAttributes } from './product-detail';
+import {
+  availableStock,
+  discountPercentage,
+  normalizeCartQuantity,
+  productAttributes,
+  productDetailApiPath,
+  productDetailPath,
+} from './product-detail';
 
 describe('product detail helpers', () => {
   it('derives non-negative available stock', () => {
@@ -27,5 +34,19 @@ describe('product detail helpers', () => {
       { key: 'featured', value: 'true' },
     ]);
     expect(productAttributes(['invalid'])).toEqual([]);
+  });
+
+  it('keeps product slugs with spaces and Unicode single-encoded across links and API requests', () => {
+    const slug = 'MacBook Pro 2024 – Like New';
+    const encoded = 'MacBook%20Pro%202024%20%E2%80%93%20Like%20New';
+
+    expect(productDetailPath(slug)).toBe(`/products/${encoded}`);
+    expect(productDetailApiPath(encoded)).toBe(`/products/${encoded}`);
+    expect(productDetailApiPath(slug)).toBe(`/products/${encoded}`);
+    expect(productDetailApiPath('modular-desk-lamp')).toBe('/products/modular-desk-lamp');
+  });
+
+  it('treats malformed percent characters as literal slug content', () => {
+    expect(productDetailApiPath('save-50%-today')).toBe('/products/save-50%25-today');
   });
 });
