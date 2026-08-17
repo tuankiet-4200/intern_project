@@ -315,6 +315,7 @@ Verified:
 - Runtime HTTP smoke returned 200 for catalog and Vendor products; a fresh production Web process confirmed `img-src 'self' blob: data: https:`. The pre-existing dev process retains its old CSP until restarted because Next config is startup-loaded.
 - Address/cart UX Web regression passed: 7 suites, 26 tests; Web lint passed without warnings; Web production build passed with 19 static routes and dynamic `/products/[slug]` using webpack. Default Turbopack remained blocked by the environment's internal process-port restriction.
 - Fresh production `/cart` HTTP smoke returned 200 with the Nominatim-only connect allowlist and `strict-origin-when-cross-origin`; production dependency audit returned zero vulnerabilities after pinning patched transitive `nanoid` 3.3.18.
+- Fixed map search reloading Cart/Profile by removing the nested search form inside `AddressForm`; search button and Enter now invoke geocoding without submitting the address form. Web regression is 8 suites/27 tests.
 
 ## Current Risks / Gaps
 

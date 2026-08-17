@@ -107,6 +107,7 @@ Frontend:
 - Nominatim address fields map into the internal Vietnamese address shape, while omitted provider fields preserve manual input.
 - Cart indicator normalizes item counts, notifies only on change and formats counts over 99 as `99+`.
 - Production CSP explicitly allows only the Nominatim geocoder origin in addition to the application API, and uses a provider-compatible origin-only cross-site referrer policy.
+- Address map search renders no nested `<form>` and its search control is an explicit non-submitting button, preventing Cart/Profile reload on search.
 
 Operations:
 

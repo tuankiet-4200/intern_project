@@ -2,7 +2,7 @@
 
 import type { CircleMarker, Map as LeafletMap } from 'leaflet';
 import { LocateFixed, MapPin, Search } from 'lucide-react';
-import { FormEvent, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { addressDraftFromPlace, type AddressDraft, type NominatimPlace } from '@/lib/address';
 
 const DEFAULT_CENTER: [number, number] = [10.7769, 106.7009];
@@ -54,8 +54,7 @@ export function AddressMapPicker({ onAddress }: { onAddress: (address: Partial<A
     };
   }, [onAddress]);
 
-  async function searchAddress(event: FormEvent) {
-    event.preventDefault();
+  async function searchAddress() {
     const normalized = query.trim();
     if (normalized.length < 3) {
       setMapError('Hãy nhập ít nhất 3 ký tự để tìm địa chỉ.');
@@ -101,13 +100,24 @@ export function AddressMapPicker({ onAddress }: { onAddress: (address: Partial<A
           <p className="mt-0.5 text-xs leading-5 text-[var(--muted)]">Tìm kiếm hoặc bấm vào bản đồ để tự điền địa chỉ. Vui lòng kiểm tra lại trước khi lưu.</p>
         </div>
       </div>
-      <form className="mt-3 flex gap-2" onSubmit={searchAddress}>
+      <div className="mt-3 flex gap-2">
         <div className="relative min-w-0 flex-1">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted)]" />
-          <input className="h-11 w-full rounded-xl border border-[var(--line)] pl-9 pr-3 text-sm" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Ví dụ: 1 Võ Văn Ngân, Thủ Đức" aria-label="Tìm địa chỉ trên bản đồ" />
+          <input
+            className="h-11 w-full rounded-xl border border-[var(--line)] pl-9 pr-3 text-sm"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key !== 'Enter') return;
+              event.preventDefault();
+              void searchAddress();
+            }}
+            placeholder="Ví dụ: 1 Võ Văn Ngân, Thủ Đức"
+            aria-label="Tìm địa chỉ trên bản đồ"
+          />
         </div>
-        <button className="button-soft !min-h-11 !px-3" disabled={loading}>{loading ? 'Đang tìm…' : 'Tìm'}</button>
-      </form>
+        <button type="button" className="button-soft !min-h-11 !px-3" disabled={loading} onClick={() => void searchAddress()}>{loading ? 'Đang tìm…' : 'Tìm'}</button>
+      </div>
       {results.length ? (
         <div className="mt-2 grid max-h-44 gap-1 overflow-y-auto rounded-xl border border-[var(--line)] bg-white p-1.5">
           {results.map((place) => (

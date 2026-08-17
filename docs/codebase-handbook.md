@@ -747,6 +747,8 @@ Khi bấm một điểm trên bản đồ, UI đặt `circleMarker`, gọi Nomin
 
 Map dùng Leaflet, tile `https://tile.openstreetmap.org/{z}/{x}/{y}.png` và attribution OpenStreetMap hiển thị trực tiếp. Nominatim public không được dùng làm autocomplete: chỉ request khi submit/click, queue toàn trang giữ tối đa một request mỗi giây và cache URL đã trả về. `countrycodes=vn` là filter địa lý; `accept-language=vi` ưu tiên tên tiếng Việt. Đây phù hợp demo/local có lưu lượng nhỏ. Production có traffic đáng kể phải dùng managed/self-hosted geocoder/tile provider, giữ attribution, caching, privacy và quota theo hợp đồng; không preload/bulk download public OSM tiles.
 
+`AddressForm` đã là form chịu trách nhiệm lưu địa chỉ, vì vậy `AddressMapPicker` tuyệt đối không render thêm thẻ `<form>` bên trong. Thanh tìm kiếm map dùng container thường và nút `type="button"`; handler `keydown` chặn default khi Enter rồi gọi search. Nếu lồng form hoặc bỏ `type="button"`, browser có thể submit form cha, reload trang và không chạy/không hiển thị kết quả geocoder. Regression test render component thành static markup để khóa invariant không có nested form này.
+
 ---
 
 ## 10. Luồng shop onboarding
