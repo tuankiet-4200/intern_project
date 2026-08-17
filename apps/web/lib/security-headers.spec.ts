@@ -11,7 +11,7 @@ describe('Web security headers', () => {
 
     expect(csp).toContain("default-src 'self'");
     expect(csp).toContain("connect-src 'self' https://api.example.com");
-    expect(csp).toContain('https://nominatim.openstreetmap.org');
+    expect(csp).not.toContain('nominatim.openstreetmap.org');
     expect(csp).toContain("img-src 'self' blob: data: https:;");
     expect(csp).toContain("object-src 'none'");
     expect(csp).toContain("script-src-attr 'none'");

@@ -106,8 +106,9 @@ Frontend:
 - Vendor product form trims/deduplicates HTTP(S) image URLs and rejects incomplete/duplicate attribute rows; catalog image links preserve their aspect-ratio block.
 - Nominatim address fields map into the internal Vietnamese address shape, while omitted provider fields preserve manual input.
 - Cart indicator normalizes item counts, notifies only on change and formats counts over 99 as `99+`.
-- Production CSP explicitly allows only the Nominatim geocoder origin in addition to the application API, and uses a provider-compatible origin-only cross-site referrer policy.
+- Production CSP keeps browser connections to same-origin and the configured application API; Nominatim is reached only from validated same-origin server proxy routes.
 - Address map search renders no nested `<form>` and its search control is an explicit non-submitting button, preventing Cart/Profile reload on search.
+- Geocoding proxy builders trim/bound search input, force Vietnam/Vietnamese upstream parameters and reject invalid coordinate ranges before any upstream request.
 
 Operations:
 

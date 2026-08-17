@@ -735,7 +735,9 @@ Luồng nhập tay vẫn luôn hoạt động. `AddressMapPicker` chỉ là côn
 
 ```text
 Người dùng nhập từ khóa và bấm Tìm
-  -> Nominatim /search, giới hạn Việt Nam và 5 kết quả
+  -> browser gọi same-origin /api/geocoding/search
+  -> Next route validate input và gọi Nominatim /search ở server
+  -> giới hạn Việt Nam, tiếng Việt và 5 kết quả
   -> chọn kết quả
   -> addressDraftFromPlace() chuẩn hóa road/ward/district/city
   -> mergeLocatedAddress() chỉ ghi đè field provider trả về
@@ -743,9 +745,9 @@ Người dùng nhập từ khóa và bấm Tìm
   -> POST /users/me/addresses
 ```
 
-Khi bấm một điểm trên bản đồ, UI đặt `circleMarker`, gọi Nominatim `/reverse` rồi đi qua cùng hàm chuẩn hóa. Không lưu latitude/longitude vào database trong scope hiện tại; thông tin chính thức vẫn là các ô địa chỉ và checkout snapshot chúng như trước. Nếu Leaflet, tile hoặc geocoder lỗi, map hiện cảnh báo nhưng input và nút lưu không bị khóa.
+Khi bấm một điểm trên bản đồ, UI đặt `circleMarker`, gọi same-origin `/api/geocoding/reverse`; Next route validate biên latitude/longitude rồi mới gọi Nominatim `/reverse`. Kết quả đi qua cùng hàm chuẩn hóa. Không lưu latitude/longitude vào database trong scope hiện tại; thông tin chính thức vẫn là các ô địa chỉ và checkout snapshot chúng như trước. Nếu Leaflet, tile hoặc geocoder lỗi, map hiện cảnh báo nhưng input và nút lưu không bị khóa.
 
-Map dùng Leaflet, tile `https://tile.openstreetmap.org/{z}/{x}/{y}.png` và attribution OpenStreetMap hiển thị trực tiếp. Nominatim public không được dùng làm autocomplete: chỉ request khi submit/click, queue toàn trang giữ tối đa một request mỗi giây và cache URL đã trả về. `countrycodes=vn` là filter địa lý; `accept-language=vi` ưu tiên tên tiếng Việt. Đây phù hợp demo/local có lưu lượng nhỏ. Production có traffic đáng kể phải dùng managed/self-hosted geocoder/tile provider, giữ attribution, caching, privacy và quota theo hợp đồng; không preload/bulk download public OSM tiles.
+Map dùng Leaflet, tile `https://tile.openstreetmap.org/{z}/{x}/{y}.png` và attribution OpenStreetMap hiển thị trực tiếp. Browser không gọi Nominatim cross-origin; hai Next Route Handler là proxy có allowlist cố định, không nhận upstream URL từ client. `lib/geocoding.ts` validate input, gửi `GEOCODING_USER_AGENT`, queue tối đa một upstream request mỗi giây trong mỗi process và cache kết quả 24 giờ; response route cho browser cache một giờ. Nominatim public không được dùng làm autocomplete: chỉ request khi submit/click. `countrycodes=vn` là filter địa lý; `accept-language=vi` ưu tiên tên tiếng Việt. Đây phù hợp demo/local có lưu lượng nhỏ. Production có nhiều replica/traffic phải dùng managed/self-hosted geocoder/tile provider và distributed rate limit/cache, giữ attribution, privacy và quota theo hợp đồng; không preload/bulk download public OSM tiles.
 
 `AddressForm` đã là form chịu trách nhiệm lưu địa chỉ, vì vậy `AddressMapPicker` tuyệt đối không render thêm thẻ `<form>` bên trong. Thanh tìm kiếm map dùng container thường và nút `type="button"`; handler `keydown` chặn default khi Enter rồi gọi search. Nếu lồng form hoặc bỏ `type="button"`, browser có thể submit form cha, reload trang và không chạy/không hiển thị kết quả geocoder. Regression test render component thành static markup để khóa invariant không có nested form này.
 
@@ -1703,12 +1705,12 @@ Production CSP hiện tại:
 
 - chỉ load script/style/font/worker theo allowlist;
 - ảnh product cho phép HTTPS vì URL do Vendor quản lý; HTTP image chỉ được phép ở development;
-- `connect-src` chỉ cho same-origin, origin rút từ `NEXT_PUBLIC_API_URL` và đúng host Nominatim dùng cho tra cứu địa chỉ;
+- `connect-src` chỉ cho same-origin và origin rút từ `NEXT_PUBLIC_API_URL`; geocoding đi qua same-origin Next route nên browser không cần mở Nominatim;
 - chặn plugin/object, frame embedding và thay đổi base URL;
 - chặn `unsafe-eval` ở production;
 - form chỉ submit same-origin.
 
-Các header bổ sung gồm COOP, Permissions-Policy, Referrer-Policy, nosniff và deny framing; Next `X-Powered-By` bị tắt. Referrer policy là `strict-origin-when-cross-origin`: không gửi path/query ra cross-origin nhưng vẫn gửi origin để tile/geocoder public nhận diện website theo policy. Browser geolocation vẫn bị tắt vì flow chỉ search/click map, không cần lấy vị trí thiết bị. `NEXT_PUBLIC_API_URL` phải là absolute URL; config fail fast nếu chỉ truyền `/api`.
+Các header bổ sung gồm COOP, Permissions-Policy, Referrer-Policy, nosniff và deny framing; Next `X-Powered-By` bị tắt. Referrer policy là `strict-origin-when-cross-origin`: không gửi path/query ra cross-origin nhưng vẫn gửi origin cho OSM tile request theo policy. Geocoder được Next server định danh bằng `GEOCODING_USER_AGENT`. Browser geolocation vẫn bị tắt vì flow chỉ search/click map, không cần lấy vị trí thiết bị. `NEXT_PUBLIC_API_URL` phải là absolute URL; config fail fast nếu chỉ truyền `/api`.
 
 Policy static vẫn có `unsafe-inline` cho Next/Turbopack framework scripts và styles. Strict nonce CSP theo hướng dẫn Next hiện yêu cầu dynamic rendering và nhánh webpack thử nghiệm; đổi theo hướng đó sẽ mất static generation/CDN benefit nên chưa thực hiện âm thầm. Khi thêm analytics/payment widget, không mở wildcard; review chính xác script/connect/frame origin và threat model.
 

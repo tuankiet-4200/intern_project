@@ -6,10 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { addressDraftFromPlace, type AddressDraft, type NominatimPlace } from '@/lib/address';
 
 const DEFAULT_CENTER: [number, number] = [10.7769, 106.7009];
-const NOMINATIM_URL = 'https://nominatim.openstreetmap.org';
 const responseCache = new Map<string, unknown>();
-let requestQueue: Promise<void> = Promise.resolve();
-let nextRequestAt = 0;
 
 export function AddressMapPicker({ onAddress }: { onAddress: (address: Partial<AddressDraft>) => void }) {
   const mapElementRef = useRef<HTMLDivElement>(null);
@@ -63,15 +60,8 @@ export function AddressMapPicker({ onAddress }: { onAddress: (address: Partial<A
     setLoading(true);
     setMapError('');
     try {
-      const parameters = new URLSearchParams({
-        format: 'jsonv2',
-        addressdetails: '1',
-        limit: '5',
-        countrycodes: 'vn',
-        'accept-language': 'vi',
-        q: normalized,
-      });
-      setResults(await nominatimRequest<NominatimPlace[]>(`${NOMINATIM_URL}/search?${parameters}`));
+      const parameters = new URLSearchParams({ q: normalized });
+      setResults(await geocodingRequest<NominatimPlace[]>(`/api/geocoding/search?${parameters}`));
     } catch {
       setMapError('Không thể tìm địa chỉ lúc này. Hãy thử lại hoặc nhập thủ công.');
     } finally {
@@ -136,33 +126,19 @@ export function AddressMapPicker({ onAddress }: { onAddress: (address: Partial<A
 
 async function reverseGeocode(latitude: number, longitude: number) {
   const parameters = new URLSearchParams({
-    format: 'jsonv2',
-    addressdetails: '1',
-    'accept-language': 'vi',
     lat: String(latitude),
     lon: String(longitude),
   });
-  return nominatimRequest<NominatimPlace>(`${NOMINATIM_URL}/reverse?${parameters}`);
+  return geocodingRequest<NominatimPlace>(`/api/geocoding/reverse?${parameters}`);
 }
 
-async function nominatimRequest<T>(url: string): Promise<T> {
+async function geocodingRequest<T>(url: string): Promise<T> {
   if (responseCache.has(url)) return responseCache.get(url) as T;
-  let releaseQueue: () => void = () => undefined;
-  const previous = requestQueue;
-  requestQueue = new Promise<void>((resolve) => { releaseQueue = resolve; });
-  await previous;
-  try {
-    const waitTime = Math.max(0, nextRequestAt - Date.now());
-    if (waitTime) await new Promise((resolve) => window.setTimeout(resolve, waitTime));
-    nextRequestAt = Date.now() + 1_000;
-    const response = await fetch(url, { headers: { Accept: 'application/json' } });
-    if (!response.ok) throw new Error(`Nominatim returned ${response.status}`);
-    const payload = await response.json() as T;
-    responseCache.set(url, payload);
-    return payload;
-  } finally {
-    releaseQueue();
-  }
+  const response = await fetch(url, { headers: { Accept: 'application/json' } });
+  if (!response.ok) throw new Error(`Geocoding proxy returned ${response.status}`);
+  const payload = await response.json() as T;
+  responseCache.set(url, payload);
+  return payload;
 }
 
 function setMarker(

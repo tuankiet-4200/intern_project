@@ -5,7 +5,7 @@ type SecurityHeaderOptions = {
 
 export function buildSecurityHeaders(options: SecurityHeaderOptions) {
   const apiOrigin = parseOrigin(options.apiUrl);
-  const connectSources = ["'self'", apiOrigin, 'https://nominatim.openstreetmap.org'];
+  const connectSources = ["'self'", apiOrigin];
   if (options.isDevelopment) connectSources.push('ws:', 'wss:');
   const imageSources = ["'self'", 'blob:', 'data:', 'https:'];
   if (options.isDevelopment) imageSources.push('http:');

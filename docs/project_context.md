@@ -316,6 +316,7 @@ Verified:
 - Address/cart UX Web regression passed: 7 suites, 26 tests; Web lint passed without warnings; Web production build passed with 19 static routes and dynamic `/products/[slug]` using webpack. Default Turbopack remained blocked by the environment's internal process-port restriction.
 - Fresh production `/cart` HTTP smoke returned 200 with the Nominatim-only connect allowlist and `strict-origin-when-cross-origin`; production dependency audit returned zero vulnerabilities after pinning patched transitive `nanoid` 3.3.18.
 - Fixed map search reloading Cart/Profile by removing the nested search form inside `AddressForm`; search button and Enter now invoke geocoding without submitting the address form. Web regression is 8 suites/27 tests.
+- Fixed geocoding blocked by a stale/direct browser CSP path: search and reverse lookup now use validated same-origin Next route proxies with an identifying server User-Agent, one-request-per-second process queue and 24-hour cache. Live local smoke returned Hà Nội search and reverse results; Web regression is 9 suites/29 tests and the build exposes 21 routes.
 
 ## Current Risks / Gaps
 
@@ -332,6 +333,7 @@ Verified:
 - Existing products may contain human-readable slugs with spaces/Unicode. Public routing now supports them safely; enforcing canonical lowercase hyphenated slugs would require an explicit compatibility/redirect migration rather than silently changing live URLs.
 - Browser discovery again returned no available in-app/Chrome instance, so the card fix was verified by the block/aspect-ratio source invariant, builds/tests and HTTP runtime rather than an automated screenshot.
 - Public OpenStreetMap/Nominatim endpoints are intentionally a low-volume local/demo integration. Production traffic requires a managed or self-hosted tile/geocoding service with reviewed quota, caching, attribution and privacy terms.
+- The current Nominatim proxy limiter/cache is process-local; a multi-replica production deployment must replace it with distributed enforcement or a provider contract.
 
 ## Next Recommended Step
 
