@@ -2,6 +2,7 @@
 
 import { AppShell } from '@/components/AppShell';
 import { apiRequest } from '@/lib/api';
+import { submitAndReset } from '@/lib/form-submission';
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 
@@ -16,6 +17,7 @@ type Shop = {
 export default function VendorShopPage() {
   const [shops, setShops] = useState<Shop[]>([]);
   const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
   const load = useCallback(async () => {
@@ -37,21 +39,24 @@ export default function VendorShopPage() {
 
   async function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const formElement = event.currentTarget;
     setError('');
-    const form = new FormData(event.currentTarget);
+    setSubmitting(true);
+    const form = new FormData(formElement);
     try {
-      await apiRequest('/shops', {
+      await submitAndReset(formElement, () => apiRequest('/shops', {
         method: 'POST',
         body: JSON.stringify({
           name: form.get('name'),
           slug: form.get('slug'),
           description: form.get('description') || undefined,
         }),
-      }, true);
-      event.currentTarget.reset();
+      }, true));
       await load();
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Unable to create shop request');
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -81,7 +86,7 @@ export default function VendorShopPage() {
         <input name="name" className="h-10 rounded border border-[var(--line)] px-3" placeholder="Shop name" required minLength={3} />
         <input name="slug" className="h-10 rounded border border-[var(--line)] px-3" placeholder="shop-slug" required minLength={3} />
         <textarea name="description" className="min-h-24 rounded border border-[var(--line)] p-3 md:col-span-2" placeholder="What does your shop sell?" />
-        <button className="h-10 rounded bg-[var(--accent)] text-white md:w-fit md:px-4">Submit for review</button>
+        <button type="submit" className="h-10 rounded bg-[var(--accent)] text-white disabled:cursor-not-allowed disabled:opacity-60 md:w-fit md:px-4" disabled={submitting}>{submitting ? 'Đang gửi…' : 'Submit for review'}</button>
       </form>
     </AppShell>
   );

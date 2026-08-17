@@ -767,6 +767,8 @@ Allowed roles: `CUSTOMER`, `VENDOR`.
 
 Tạo shop không tự biến user thành vendor.
 
+Frontend `/vendor/shop` phải giữ `const formElement = event.currentTarget` trước request bất đồng bộ. React có thể đưa `event.currentTarget` về `null` sau `await`; vì vậy gọi `event.currentTarget.reset()` sau API sẽ báo `Cannot read properties of null (reading 'reset')` dù shop đã được tạo thành công. Helper `lib/form-submission.ts#submitAndReset` nhận form reference đã capture, chỉ reset sau khi API resolve và giữ nguyên dữ liệu khi API reject. Nút submit bị disable trong lúc gửi để hạn chế double-click; sau success trang reload `/shops/me` để request `PENDING_REVIEW` xuất hiện ngay. Admin category create dùng cùng helper vì có cùng async form lifecycle.
+
 ### 10.2 Admin review
 
 - `GET /shops/admin/review-queue`: chỉ ADMIN, lấy shop pending theo thứ tự cũ trước.

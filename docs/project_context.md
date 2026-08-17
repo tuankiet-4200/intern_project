@@ -338,6 +338,8 @@ Verified:
 - Phase 6 visual browser click-through could not run because browser discovery returned no connected instance; route production compilation, localhost HTTP/API smoke and automated frontend/backend tests remain green.
 - Final Phase 6 regression passed: API 20 suites/43 tests, HTTP E2E 3 suites/4 tests and Web 10 suites/31 tests. API/Web lint and API build passed; Web webpack production build generated 23 routes including `/messages` and `/vendor/messages`.
 - Production dependency audit after adding Socket.IO client/server packages returned zero vulnerabilities.
+- Fixed Vendor shop onboarding's post-success `Cannot read properties of null (reading 'reset')`: the form element is captured before `await`, reset only after successful creation, submit is guarded against double-click, and the same latent lifecycle bug was removed from Admin category creation. Web regression now has 11 suites/33 tests.
+- Browser click-through for the form fix could not run because browser discovery again returned no connected instance; lint/unit/build verification is used. Because the old failure happened after the successful POST, a request created before the reset error remains persisted and appears after reload.
 
 ## Current Risks / Gaps
 

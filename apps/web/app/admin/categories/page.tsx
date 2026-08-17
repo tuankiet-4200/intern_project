@@ -2,6 +2,7 @@
 
 import { AppShell } from '@/components/AppShell';
 import { apiRequest } from '@/lib/api';
+import { submitAndReset } from '@/lib/form-submission';
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 
 type Category = {
@@ -37,18 +38,18 @@ export default function AdminCategoriesPage() {
 
   async function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const formElement = event.currentTarget;
     setError('');
-    const form = new FormData(event.currentTarget);
+    const form = new FormData(formElement);
     try {
-      await apiRequest('/categories', {
+      await submitAndReset(formElement, () => apiRequest('/categories', {
         method: 'POST',
         body: JSON.stringify({
           name: form.get('name'),
           slug: form.get('slug'),
           parentId: form.get('parentId') ? Number(form.get('parentId')) : undefined,
         }),
-      }, true);
-      event.currentTarget.reset();
+      }, true));
       await load();
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Unable to create category');
