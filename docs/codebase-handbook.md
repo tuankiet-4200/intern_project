@@ -727,6 +727,26 @@ Nếu xóa default:
 
 Checkout chỉ nhận address thuộc đúng customer và snapshot nội dung address vào ParentOrder. Sửa address profile sau đó không sửa địa chỉ của order cũ.
 
+### 9.5 Frontend nhập địa chỉ và bản đồ
+
+`components/AddressForm.tsx` là form dùng chung cho `/profile` và phần thêm nhanh trong `/cart`. Toàn bộ label, placeholder và feedback chính được viết bằng tiếng Việt. Form giữ `AddressDraft` gồm `recipient`, `phone`, `line1`, `ward`, `district`, `city`; đây cũng chính là shape backend nhận nên UI không tự tạo một address model thứ hai.
+
+Luồng nhập tay vẫn luôn hoạt động. `AddressMapPicker` chỉ là công cụ hỗ trợ:
+
+```text
+Người dùng nhập từ khóa và bấm Tìm
+  -> Nominatim /search, giới hạn Việt Nam và 5 kết quả
+  -> chọn kết quả
+  -> addressDraftFromPlace() chuẩn hóa road/ward/district/city
+  -> mergeLocatedAddress() chỉ ghi đè field provider trả về
+  -> người dùng kiểm tra/sửa input
+  -> POST /users/me/addresses
+```
+
+Khi bấm một điểm trên bản đồ, UI đặt `circleMarker`, gọi Nominatim `/reverse` rồi đi qua cùng hàm chuẩn hóa. Không lưu latitude/longitude vào database trong scope hiện tại; thông tin chính thức vẫn là các ô địa chỉ và checkout snapshot chúng như trước. Nếu Leaflet, tile hoặc geocoder lỗi, map hiện cảnh báo nhưng input và nút lưu không bị khóa.
+
+Map dùng Leaflet, tile `https://tile.openstreetmap.org/{z}/{x}/{y}.png` và attribution OpenStreetMap hiển thị trực tiếp. Nominatim public không được dùng làm autocomplete: chỉ request khi submit/click, queue toàn trang giữ tối đa một request mỗi giây và cache URL đã trả về. `countrycodes=vn` là filter địa lý; `accept-language=vi` ưu tiên tên tiếng Việt. Đây phù hợp demo/local có lưu lượng nhỏ. Production có traffic đáng kể phải dùng managed/self-hosted geocoder/tile provider, giữ attribution, caching, privacy và quota theo hợp đồng; không preload/bulk download public OSM tiles.
+
 ---
 
 ## 10. Luồng shop onboarding
@@ -1002,6 +1022,18 @@ Transaction:
 - `DELETE /cart`: xóa tất cả item của cart user, không xóa Cart container.
 
 Cart validation không reserve stock. Giữa lúc add cart và checkout, stock/price/shop status có thể đổi. Vì vậy checkout bắt buộc validate lại.
+
+### 14.4 Đồng bộ badge giỏ hàng frontend
+
+`lib/cart-indicator.ts` là external store rất nhỏ, chỉ giữ `itemCount` trong memory và phát thông báo cho `useSyncExternalStore()`. Nó không thay cart backend và không lưu localStorage.
+
+- `AppShell` tải `GET /cart` sau khi khôi phục session CUSTOMER/VENDOR và đưa số lượng lên icon giỏ ở desktop/mobile.
+- Home và product detail lấy cart response từ `POST /cart/items` rồi gọi `setCartItemCount()` ngay, nên không cần reload header.
+- Trang cart cập nhật store sau load, tăng/giảm/xóa item; checkout thành công reset về 0.
+- Logout, anonymous session hoặc ADMIN reset counter để không lộ số của account trước.
+- Badge hiển thị tổng quantity (`itemCount`), không phải số dòng sản phẩm; trên 99 hiển thị `99+`.
+
+Backend response vẫn là nguồn đúng. Store này chỉ giải quyết phản hồi UI tức thời và sẽ được đồng bộ lại từ `/cart` sau reload/session restore.
 
 ---
 
@@ -1669,12 +1701,12 @@ Production CSP hiện tại:
 
 - chỉ load script/style/font/worker theo allowlist;
 - ảnh product cho phép HTTPS vì URL do Vendor quản lý; HTTP image chỉ được phép ở development;
-- `connect-src` chỉ cho same-origin và origin rút từ `NEXT_PUBLIC_API_URL`;
+- `connect-src` chỉ cho same-origin, origin rút từ `NEXT_PUBLIC_API_URL` và đúng host Nominatim dùng cho tra cứu địa chỉ;
 - chặn plugin/object, frame embedding và thay đổi base URL;
 - chặn `unsafe-eval` ở production;
 - form chỉ submit same-origin.
 
-Các header bổ sung gồm COOP, Permissions-Policy, Referrer-Policy, nosniff và deny framing; Next `X-Powered-By` bị tắt. `NEXT_PUBLIC_API_URL` phải là absolute URL; config fail fast nếu chỉ truyền `/api`.
+Các header bổ sung gồm COOP, Permissions-Policy, Referrer-Policy, nosniff và deny framing; Next `X-Powered-By` bị tắt. Referrer policy là `strict-origin-when-cross-origin`: không gửi path/query ra cross-origin nhưng vẫn gửi origin để tile/geocoder public nhận diện website theo policy. Browser geolocation vẫn bị tắt vì flow chỉ search/click map, không cần lấy vị trí thiết bị. `NEXT_PUBLIC_API_URL` phải là absolute URL; config fail fast nếu chỉ truyền `/api`.
 
 Policy static vẫn có `unsafe-inline` cho Next/Turbopack framework scripts và styles. Strict nonce CSP theo hướng dẫn Next hiện yêu cầu dynamic rendering và nhánh webpack thử nghiệm; đổi theo hướng đó sẽ mất static generation/CDN benefit nên chưa thực hiện âm thầm. Khi thêm analytics/payment widget, không mở wildcard; review chính xác script/connect/frame origin và threat model.
 
@@ -1711,7 +1743,7 @@ Phân quyền UI hiện tại:
 | VENDOR | Customer purchase flow và nút chuyển workspace | Toàn bộ vendor navigation | Không truy cập |
 | ADMIN | Catalog, notification và nút chuyển workspace; không hiện cart/order | Không truy cập | Toàn bộ admin navigation |
 
-`StorefrontShell` có responsive top navigation, account/workspace action và mobile bottom navigation. `WorkspaceShell` dùng sidebar desktop và horizontal navigation trên mobile. Global token, button/input states, card shadow, focus ring và reduced-motion nằm ở `app/globals.css`; page không nên tự tạo một visual language khác.
+`StorefrontShell` có responsive top navigation, account/workspace action, cart badge reactive và mobile bottom navigation. `WorkspaceShell` dùng sidebar desktop và horizontal navigation trên mobile. Global token, button/input states, card shadow, focus ring và reduced-motion nằm ở `app/globals.css`; page không nên tự tạo một visual language khác. `SelectMenu` thay native select ở checkout bằng button/listbox có selected state, description, click-outside và Escape; khi bổ sung option phải giữ label rõ nghĩa và không dùng menu này như authorization boundary.
 
 Frontend route gate có unit test tại `lib/navigation.spec.ts` cho menu theo role, customer shop onboarding, truy cập chéo và workspace landing. Khi thêm route mới, developer phải cập nhật đồng thời navigation mapping, `canAccessPath()` và test. Nếu route có business permission mới, phải thêm guard backend riêng; chỉ thêm menu là chưa đủ.
 
@@ -1738,9 +1770,10 @@ Frontend route gate có unit test tại `lib/navigation.spec.ts` cho menu theo r
 ### 22.3 `/profile`
 
 - Load song song profile và addresses.
-- Update profile.
-- Add address.
-- Set default address.
+- Hiển thị label, placeholder, role và feedback bằng tiếng Việt.
+- Update họ tên/số điện thoại.
+- Add address bằng form dùng chung: nhập tay, tìm địa chỉ hoặc click map rồi kiểm tra lại dữ liệu.
+- Set default address; card mặc định có trạng thái riêng.
 - Logout: gọi backend revoke cookie session, sau đó luôn clear local session.
 
 ### 22.4 `/`
@@ -1748,7 +1781,7 @@ Frontend route gate có unit test tại `lib/navigation.spec.ts` cho menu theo r
 - Public load song song `/products?limit=24` và `/categories`.
 - Search/category submit gọi lại `/products` bằng query `search` và `categoryId`; backend vẫn lọc product ACTIVE, approved shop và available stock.
 - Tính `available = onHand - reserved` để display và khóa nút khi hết hàng.
-- Add to cart gọi protected `/cart/items`.
+- Add to cart gọi protected `/cart/items`, nhận cart mới và cập nhật badge header ngay.
 - Nếu chưa login, helper trả lỗi yêu cầu sign in và UI hiển thị link login; success/error không làm mất catalog đang có.
 - Product image dùng URL đầu tiên trong `images`; khi chưa có ảnh, card dùng visual placeholder nhất quán thay vì khối xám trống.
 - Click ảnh hoặc tên product đi tới `/products/[slug]`; nút giỏ hàng vẫn là action riêng, không lồng button trong link.
@@ -1772,7 +1805,7 @@ Frontend flow:
 6. `discountPercentage()` chỉ hiện compare-at discount khi số hợp lệ và `compareAtPrice > price`.
 7. `productAttributes()` chỉ render scalar string/number/boolean; nested object/array không được stringify thẳng ra UI.
 8. Gallery dùng `images`; không có ảnh thì dùng visual placeholder. Description/attributes, approved-shop card, review empty/list state và related products nằm cùng trang.
-9. Anonymous add-to-cart hiển thị link login. CUSTOMER/VENDOR gọi protected cart API. ADMIN chỉ thấy thông báo read-only và không có purchase control.
+9. Anonymous add-to-cart hiển thị link login. CUSTOMER/VENDOR gọi protected cart API và cập nhật badge từ `itemCount` response. ADMIN chỉ thấy thông báo read-only và không có purchase control.
 
 Quan trọng: quantity selector và available label chỉ là UX snapshot, không reserve inventory. `CartService` và checkout vẫn revalidate active product, approved shop và current available stock; không được dùng frontend quantity check thay cho no-oversell invariant. Product detail không có write transaction riêng. Review response chỉ lộ reviewer full name, không có email/token.
 
@@ -1784,12 +1817,28 @@ Load song song:
 
 - Cart.
 - User addresses.
+- Coupon hiện khả dụng của user.
 
 Nếu cart có item, gọi checkout quote.
 
 Quantity +/- gọi PATCH cart item. Remove gọi DELETE. Sau mutation, cart và quote được refresh.
 
 Coupon chỉ được dùng cho commit sau khi quote apply thành công; state `appliedCoupon` tách khỏi text đang gõ để tổng hiển thị không lệch payload checkout.
+
+Địa chỉ và dropdown:
+
+- Address/payment dùng `SelectMenu` thay native select để có label phụ, selected state và giao diện nhất quán.
+- Address đã lưu được chọn mặc định theo `isDefault`, sau đó fallback address đầu tiên.
+- “Thêm địa chỉ mới” mở `AddressForm` ngay trong checkout, không điều hướng khỏi cart. POST thành công prepend address mới, tự chọn nó và đóng form.
+- `AddressForm` là form độc lập; checkout card không bọc một form cha để tránh nested form HTML.
+
+Coupon discovery:
+
+1. Click coupon chỉ chọn và mở `CouponDetail`, chưa tự áp dụng.
+2. Detail hiển thị loại/mức giảm, shop hoặc global scope, minimum order, maximum discount, hiệu lực, hạn dùng, lượt campaign còn lại và lượt account còn lại.
+3. “Dùng mã” hoặc nút áp dụng cạnh input gọi `/checkout/quote`.
+4. Chỉ khi quote thành công mới cập nhật `appliedCoupon` và tổng tiền.
+5. Backend vẫn validate lại toàn bộ coupon trong commit; số lượt ở detail chỉ là snapshot UX.
 
 Checkout:
 

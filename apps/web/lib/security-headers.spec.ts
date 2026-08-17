@@ -11,6 +11,7 @@ describe('Web security headers', () => {
 
     expect(csp).toContain("default-src 'self'");
     expect(csp).toContain("connect-src 'self' https://api.example.com");
+    expect(csp).toContain('https://nominatim.openstreetmap.org');
     expect(csp).toContain("img-src 'self' blob: data: https:;");
     expect(csp).toContain("object-src 'none'");
     expect(csp).toContain("script-src-attr 'none'");
@@ -18,6 +19,7 @@ describe('Web security headers', () => {
     expect(csp).toContain("frame-ancestors 'none'");
     expect(csp).not.toContain("'unsafe-eval'");
     expect(headers).toContainEqual({ key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), payment=()' });
+    expect(headers).toContainEqual({ key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' });
   });
 
   it('allows HTTP product-image previews only during local development', () => {

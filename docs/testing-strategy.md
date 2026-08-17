@@ -104,6 +104,9 @@ Frontend:
 - Product detail route is public; available stock cannot display negative, cart quantity stays within stock, compare-at discount requires valid prices, and nested attributes are not rendered as scalar specs.
 - Product detail links and API requests keep slugs with spaces/Unicode single-encoded so `%20` never becomes `%2520` between Next.js routing and the Catalog API.
 - Vendor product form trims/deduplicates HTTP(S) image URLs and rejects incomplete/duplicate attribute rows; catalog image links preserve their aspect-ratio block.
+- Nominatim address fields map into the internal Vietnamese address shape, while omitted provider fields preserve manual input.
+- Cart indicator normalizes item counts, notifies only on change and formats counts over 99 as `99+`.
+- Production CSP explicitly allows only the Nominatim geocoder origin in addition to the application API, and uses a provider-compatible origin-only cross-site referrer policy.
 
 Operations:
 

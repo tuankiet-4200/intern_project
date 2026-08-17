@@ -5,7 +5,7 @@ type SecurityHeaderOptions = {
 
 export function buildSecurityHeaders(options: SecurityHeaderOptions) {
   const apiOrigin = parseOrigin(options.apiUrl);
-  const connectSources = ["'self'", apiOrigin];
+  const connectSources = ["'self'", apiOrigin, 'https://nominatim.openstreetmap.org'];
   if (options.isDevelopment) connectSources.push('ws:', 'wss:');
   const imageSources = ["'self'", 'blob:', 'data:', 'https:'];
   if (options.isDevelopment) imageSources.push('http:');
@@ -31,7 +31,7 @@ export function buildSecurityHeaders(options: SecurityHeaderOptions) {
     { key: 'Content-Security-Policy', value: directives.join('; ') },
     { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
     { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), payment=()' },
-    { key: 'Referrer-Policy', value: 'no-referrer' },
+    { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
     { key: 'X-Content-Type-Options', value: 'nosniff' },
     { key: 'X-Frame-Options', value: 'DENY' },
   ];

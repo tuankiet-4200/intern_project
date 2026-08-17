@@ -20,7 +20,14 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
-import { getSession, restoreSession, subscribeSession, type Session } from '@/lib/api';
+import { apiRequest, getSession, restoreSession, subscribeSession, type Session } from '@/lib/api';
+import {
+  formatCartBadgeCount,
+  getCartItemCount,
+  resetCartItemCount,
+  setCartItemCount,
+  subscribeCartItemCount,
+} from '@/lib/cart-indicator';
 import {
   canAccessPath,
   isNavigationItemActive,
@@ -47,6 +54,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const surface = resolveSurface(pathname);
   const session = useSyncExternalStore(subscribeSession, getSession, () => null);
+  const cartItemCount = useSyncExternalStore(subscribeCartItemCount, getCartItemCount, () => 0);
   const [sessionReady, setSessionReady] = useState(false);
 
   useEffect(() => {
@@ -54,6 +62,23 @@ export function AppShell({ children }: { children: ReactNode }) {
       setSessionReady(true);
     });
   }, []);
+
+  useEffect(() => {
+    if (!sessionReady) return;
+    if (!session || session.user.role === 'ADMIN') {
+      resetCartItemCount();
+      return;
+    }
+    let active = true;
+    apiRequest<{ itemCount: number }>('/cart', {}, true)
+      .then((cart) => {
+        if (active) setCartItemCount(cart.itemCount);
+      })
+      .catch(() => {
+        if (active) resetCartItemCount();
+      });
+    return () => { active = false; };
+  }, [session, sessionReady]);
 
   const navigation = useMemo(
     () => navigationFor(surface, session?.user.role),
@@ -79,7 +104,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   }
 
   return (
-    <StorefrontShell pathname={pathname} navigation={navigation} session={session} authOnly={surface === 'auth'}>
+    <StorefrontShell pathname={pathname} navigation={navigation} session={session} authOnly={surface === 'auth'} cartItemCount={cartItemCount}>
       {content}
     </StorefrontShell>
   );
@@ -91,12 +116,14 @@ function StorefrontShell({
   navigation,
   session,
   authOnly,
+  cartItemCount,
 }: {
   children: ReactNode;
   pathname: string;
   navigation: NavigationItem[];
   session: Session | null;
   authOnly: boolean;
+  cartItemCount: number;
 }) {
   return (
     <div className="min-h-screen bg-[var(--background)] pb-20 md:pb-0">
@@ -105,7 +132,7 @@ function StorefrontShell({
           <Brand />
           {!authOnly ? (
             <nav className="ml-auto hidden items-center gap-1 lg:flex" aria-label="Điều hướng khách hàng">
-              {navigation.map((item) => <TopNavigationLink key={item.href} item={item} pathname={pathname} />)}
+              {navigation.map((item) => <TopNavigationLink key={item.href} item={item} pathname={pathname} cartItemCount={cartItemCount} />)}
             </nav>
           ) : <div className="ml-auto" />}
           <AccountActions session={session} authOnly={authOnly} />
@@ -118,7 +145,7 @@ function StorefrontShell({
 
       {!authOnly ? (
         <nav className="fixed inset-x-3 bottom-3 z-40 grid rounded-2xl border border-white/70 bg-[#142a25]/95 p-1.5 text-white shadow-2xl backdrop-blur md:hidden" style={{ gridTemplateColumns: `repeat(${Math.max(navigation.length, 1)}, minmax(0, 1fr))` }} aria-label="Điều hướng di động">
-          {navigation.map((item) => <MobileNavigationLink key={item.href} item={item} pathname={pathname} />)}
+          {navigation.map((item) => <MobileNavigationLink key={item.href} item={item} pathname={pathname} cartItemCount={cartItemCount} />)}
         </nav>
       ) : null}
       {!authOnly ? (
@@ -245,23 +272,39 @@ function UserAvatar({ name, inverse = false }: { name: string; inverse?: boolean
   return <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-extrabold ${inverse ? 'bg-emerald-300 text-[#102722]' : 'bg-emerald-100 text-emerald-800'}`}>{initials}</span>;
 }
 
-function TopNavigationLink({ item, pathname }: { item: NavigationItem; pathname: string }) {
+function TopNavigationLink({ item, pathname, cartItemCount }: { item: NavigationItem; pathname: string; cartItemCount: number }) {
   const Icon = ICONS[item.icon];
   const active = isNavigationItemActive(pathname, item);
   return (
-    <Link href={item.href} className={`nav-link ${active ? 'nav-link-active' : ''}`}>
-      <Icon size={17} /> {item.label}
+    <Link href={item.href} className={`nav-link relative ${active ? 'nav-link-active' : ''}`}>
+      <span className="relative">
+        <Icon size={17} />
+        {item.icon === 'cart' && cartItemCount > 0 ? <CartBadge count={cartItemCount} /> : null}
+      </span>
+      {item.label}
     </Link>
   );
 }
 
-function MobileNavigationLink({ item, pathname }: { item: NavigationItem; pathname: string }) {
+function MobileNavigationLink({ item, pathname, cartItemCount }: { item: NavigationItem; pathname: string; cartItemCount: number }) {
   const Icon = ICONS[item.icon];
   const active = isNavigationItemActive(pathname, item);
   return (
     <Link href={item.href} className={`flex min-w-0 flex-col items-center gap-1 rounded-xl px-1 py-2 text-[10px] font-semibold ${active ? 'bg-white text-[#153c33]' : 'text-white/65'}`}>
-      <Icon size={18} /><span className="truncate">{item.label}</span>
+      <span className="relative">
+        <Icon size={18} />
+        {item.icon === 'cart' && cartItemCount > 0 ? <CartBadge count={cartItemCount} compact /> : null}
+      </span>
+      <span className="truncate">{item.label}</span>
     </Link>
+  );
+}
+
+function CartBadge({ count, compact = false }: { count: number; compact?: boolean }) {
+  return (
+    <span className={`absolute flex items-center justify-center rounded-full bg-red-500 font-extrabold leading-none text-white ring-2 ${compact ? '-right-3 -top-2 h-4 min-w-4 px-1 text-[9px] ring-[#142a25]' : '-right-3.5 -top-2.5 h-[18px] min-w-[18px] px-1 text-[10px] ring-white'}`} aria-label={`${count} sản phẩm trong giỏ hàng`}>
+      {formatCartBadgeCount(count)}
+    </span>
   );
 }
 

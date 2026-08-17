@@ -2,6 +2,7 @@
 
 import { AppShell } from '@/components/AppShell';
 import { apiRequest, formatVnd } from '@/lib/api';
+import { setCartItemCount } from '@/lib/cart-indicator';
 import { productDetailPath } from '@/lib/product-detail';
 import {
   Check,
@@ -81,10 +82,11 @@ export default function Home() {
     setAddingId(product.id);
     setActionMessage(null);
     try {
-      await apiRequest('/cart/items', {
+      const nextCart = await apiRequest<{ itemCount: number }>('/cart/items', {
         method: 'POST',
         body: JSON.stringify({ productId: product.id, quantity: 1 }),
       }, true);
+      setCartItemCount(nextCart.itemCount);
       setActionMessage({ type: 'success', text: `Đã thêm “${product.name}” vào giỏ hàng.` });
     } catch (requestError) {
       const message = requestError instanceof Error ? requestError.message : '';

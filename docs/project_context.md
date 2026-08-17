@@ -207,6 +207,12 @@ Phase 5F role-aware frontend UX:
 - Extended Web image CSP for HTTPS product images and development-only HTTP previews; scripts/connections remain restricted.
 - Added Catalog PostgreSQL coverage for merchandising persistence/validation and Web helper coverage for image/attribute form normalization.
 - Fixed public product-detail navigation for legacy slugs containing spaces/Unicode by centralizing link encoding and normalizing Next.js route params before API requests, preventing `%20` from becoming `%2520`.
+- Localized Profile/address and Cart/Checkout labels, placeholders, status text and primary actions into Vietnamese.
+- Added a reusable address form with manual entry, Leaflet/OpenStreetMap selection and throttled Nominatim search/reverse lookup; map failure preserves the manual flow and coordinates are not persisted.
+- Added an in-memory cart indicator synchronized from authenticated cart load and every add/update/remove/checkout action, with desktop/mobile header badges.
+- Replaced checkout native selects with a styled reusable listbox and added inline address creation without leaving the cart.
+- Added coupon discovery details for scope, discount constraints, active dates and remaining usage; selecting a coupon no longer applies it before explicit confirmation.
+- Restricted CSP map access to the exact Nominatim origin and changed cross-origin referrer handling to satisfy provider identification without exposing path/query.
 
 Governance/context:
 
@@ -307,6 +313,8 @@ Verified:
 - API/Web lint passed; Web unit suite passed with 5 suites/20 tests; API and Web production builds passed for product authoring/card repair.
 - Product slug routing regression passed with 5 Web suites/22 tests and Web lint; Web production build passed with the dynamic detail route, the exact MacBook API URL returned its public product, and the production frontend route returned HTTP 200.
 - Runtime HTTP smoke returned 200 for catalog and Vendor products; a fresh production Web process confirmed `img-src 'self' blob: data: https:`. The pre-existing dev process retains its old CSP until restarted because Next config is startup-loaded.
+- Address/cart UX Web regression passed: 7 suites, 26 tests; Web lint passed without warnings; Web production build passed with 19 static routes and dynamic `/products/[slug]` using webpack. Default Turbopack remained blocked by the environment's internal process-port restriction.
+- Fresh production `/cart` HTTP smoke returned 200 with the Nominatim-only connect allowlist and `strict-origin-when-cross-origin`; production dependency audit returned zero vulnerabilities after pinning patched transitive `nanoid` 3.3.18.
 
 ## Current Risks / Gaps
 
@@ -322,6 +330,7 @@ Verified:
 - Product images currently use Vendor-managed URLs. Direct binary upload remains pending selection of object storage/CDN and a signed upload/scanning policy; container filesystem/base64 persistence is intentionally not used.
 - Existing products may contain human-readable slugs with spaces/Unicode. Public routing now supports them safely; enforcing canonical lowercase hyphenated slugs would require an explicit compatibility/redirect migration rather than silently changing live URLs.
 - Browser discovery again returned no available in-app/Chrome instance, so the card fix was verified by the block/aspect-ratio source invariant, builds/tests and HTTP runtime rather than an automated screenshot.
+- Public OpenStreetMap/Nominatim endpoints are intentionally a low-volume local/demo integration. Production traffic requires a managed or self-hosted tile/geocoding service with reviewed quota, caching, attribution and privacy terms.
 
 ## Next Recommended Step
 

@@ -2,6 +2,7 @@
 
 import { AppShell } from '@/components/AppShell';
 import { apiRequest, formatVnd, getSession, subscribeSession } from '@/lib/api';
+import { setCartItemCount } from '@/lib/cart-indicator';
 import {
   availableStock,
   discountPercentage,
@@ -129,10 +130,11 @@ export default function ProductDetailPage() {
     setAdding(true);
     setActionMessage(null);
     try {
-      await apiRequest('/cart/items', {
+      const nextCart = await apiRequest<{ itemCount: number }>('/cart/items', {
         method: 'POST',
         body: JSON.stringify({ productId: product.id, quantity }),
       }, true);
+      setCartItemCount(nextCart.itemCount);
       setActionMessage({ type: 'success', text: `Đã thêm ${quantity} sản phẩm vào giỏ hàng.` });
     } catch (requestError) {
       setActionMessage({
