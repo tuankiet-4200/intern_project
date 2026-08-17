@@ -4,6 +4,7 @@ import { HealthController } from './common/health.controller';
 import { RateLimitMiddleware } from './common/middleware/rate-limit.middleware';
 import { AuthModule } from './modules/auth/auth.module';
 import { CartModule } from './modules/cart/cart.module';
+import { ChatModule } from './modules/chat/chat.module';
 import { CatalogModule } from './modules/catalog/catalog.module';
 import { CheckoutModule } from './modules/checkout/checkout.module';
 import { CouponsModule } from './modules/coupons/coupons.module';
@@ -27,6 +28,7 @@ import { PrismaModule } from './prisma/prisma.module';
     InventoryModule,
     NotificationsModule,
     CartModule,
+    ChatModule,
     CheckoutModule,
     CouponsModule,
     OrdersModule,

@@ -19,6 +19,17 @@ cp apps/api/.env.example apps/api/.env
 cp apps/web/.env.example apps/web/.env.local
 ```
 
+Để dùng AI chat, đặt secret chỉ trong `apps/api/.env` rồi khởi động lại API:
+
+```bash
+DEEPSEEK_API_KEY=your_server_side_key
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL=deepseek-v4-flash
+DEEPSEEK_TIMEOUT_MS=20000
+```
+
+Không thêm key vào biến `NEXT_PUBLIC_*`, source code hoặc commit. Nếu không có key, chat người-người vẫn hoạt động nhưng Vendor không thể bật AI.
+
 Mac/Linux neu port `5433`, `6380`, `5673`, `15673`, `3000`, `3005` dang ban, hay doi port trong `.env` hoac `docker-compose.yml`.
 
 ## 2. Cai dependencies

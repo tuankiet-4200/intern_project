@@ -80,6 +80,16 @@ Notifications:
 - Invalid event payload becomes FAILED without blocking valid events.
 - Inbox list/read operations are scoped to current user.
 
+Shop chat and AI:
+
+- Starting the same customer/shop conversation is idempotent.
+- Message retry with the same `clientMessageId` stores one row.
+- Conversation history/read state/realtime room access is limited to the customer and current shop owner.
+- A vendor cannot update another shop's AI setting; AI cannot be enabled without a backend key.
+- AI prompt contains only the supplied shop catalog, exact available stock and safe product links.
+- DeepSeek credential is sent only in the Authorization header and never serialized into the request body/client bundle.
+- Realtime merge deduplicates events and preserves chronological display order; polling remains a fallback.
+
 Infrastructure/request protection:
 
 - Memory limiter returns structured 429 responses and bypasses health probes.

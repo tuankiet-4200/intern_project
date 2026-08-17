@@ -132,7 +132,8 @@ Never use force-push. Never rewrite existing commits unless the user explicitly 
 In the initial 2-month plan, do not implement:
 
 - Shipper app
-- AI chatbot
 - Product recommendation engine
 
 These can remain in backlog unless the user explicitly changes scope.
+
+The user explicitly moved shop live chat and the catalog-grounded DeepSeek chatbot into Phase 6. Future chat changes must preserve participant/shop ownership, keep provider secrets backend-only, ground AI context in the exact shop's active catalog, and update the handbook/tests in the same task.

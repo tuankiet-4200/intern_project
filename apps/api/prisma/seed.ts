@@ -1,4 +1,5 @@
 import {
+  ChatSenderType,
   CouponScope,
   CouponType,
   InventoryReason,
@@ -135,6 +136,52 @@ async function main() {
       },
     });
   }
+
+  const conversation = await prisma.chatConversation.upsert({
+    where: { shopId_customerId: { shopId: shop.id, customerId: customer.id } },
+    update: {},
+    create: { shopId: shop.id, customerId: customer.id },
+  });
+  const customerMessage = await prisma.chatMessage.upsert({
+    where: {
+      conversationId_clientMessageId: {
+        conversationId: conversation.id,
+        clientMessageId: '00000000-0000-4000-8000-000000000101',
+      },
+    },
+    update: {},
+    create: {
+      conversationId: conversation.id,
+      senderUserId: customer.id,
+      senderType: ChatSenderType.CUSTOMER,
+      clientMessageId: '00000000-0000-4000-8000-000000000101',
+      content: 'Shop tư vấn giúp mình một sản phẩm dùng cho góc làm việc nhé.',
+    },
+  });
+  const shopMessage = await prisma.chatMessage.upsert({
+    where: {
+      conversationId_clientMessageId: {
+        conversationId: conversation.id,
+        clientMessageId: '00000000-0000-4000-8000-000000000102',
+      },
+    },
+    update: {},
+    create: {
+      conversationId: conversation.id,
+      senderUserId: vendor.id,
+      senderType: ChatSenderType.SHOP,
+      clientMessageId: '00000000-0000-4000-8000-000000000102',
+      content: 'Bạn có thể tham khảo Modular Desk Lamp đang còn hàng tại shop nhé.',
+    },
+  });
+  await prisma.chatConversation.update({
+    where: { id: conversation.id },
+    data: {
+      lastMessageAt: shopMessage.createdAt,
+      customerLastReadAt: customerMessage.createdAt,
+      shopLastReadAt: shopMessage.createdAt,
+    },
+  });
 
   console.log(`Seeded admin ${admin.email}, vendor ${vendor.email}, customer ${customer.email}`);
   console.log(`Demo password: ${DEMO_PASSWORD}`);

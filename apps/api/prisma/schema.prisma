@@ -110,6 +110,18 @@ enum OutboxStatus {
   FAILED
 }
 
+enum ChatSenderType {
+  CUSTOMER
+  SHOP
+  AI
+}
+
+enum ChatAiStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
 model User {
   id           String        @id @default(uuid()) @db.Uuid
   email        String        @unique
@@ -121,15 +133,17 @@ model User {
   createdAt    DateTime      @default(now()) @map("created_at")
   updatedAt    DateTime      @updatedAt @map("updated_at")
 
-  addresses        UserAddress[]
-  shops            Shop[]
-  carts            Cart[]
-  orders           ParentOrder[]
-  reviews          Review[]
-  couponUsages     CouponUsage[]
-  refreshSessions  RefreshSession[]
-  requestedRefunds Refund[]         @relation("RefundRequestedBy")
-  notifications    Notification[]
+  addresses         UserAddress[]
+  shops             Shop[]
+  carts             Cart[]
+  orders            ParentOrder[]
+  reviews           Review[]
+  couponUsages      CouponUsage[]
+  refreshSessions   RefreshSession[]
+  requestedRefunds  Refund[]           @relation("RefundRequestedBy")
+  notifications     Notification[]
+  chatConversations ChatConversation[] @relation("ChatCustomer")
+  chatMessages      ChatMessage[]
 
   @@map("users")
 }
@@ -172,21 +186,23 @@ model UserAddress {
 }
 
 model Shop {
-  id          String     @id @default(uuid()) @db.Uuid
-  ownerId     String     @map("owner_id") @db.Uuid
-  name        String
-  slug        String     @unique
-  description String?    @db.Text
-  logoUrl     String?    @map("logo_url")
-  status      ShopStatus @default(PENDING_REVIEW)
-  rating      Decimal    @default(0) @db.Decimal(3, 2)
-  createdAt   DateTime   @default(now()) @map("created_at")
-  updatedAt   DateTime   @updatedAt @map("updated_at")
+  id            String     @id @default(uuid()) @db.Uuid
+  ownerId       String     @map("owner_id") @db.Uuid
+  name          String
+  slug          String     @unique
+  description   String?    @db.Text
+  logoUrl       String?    @map("logo_url")
+  status        ShopStatus @default(PENDING_REVIEW)
+  rating        Decimal    @default(0) @db.Decimal(3, 2)
+  aiChatEnabled Boolean    @default(false) @map("ai_chat_enabled")
+  createdAt     DateTime   @default(now()) @map("created_at")
+  updatedAt     DateTime   @updatedAt @map("updated_at")
 
-  owner      User        @relation(fields: [ownerId], references: [id])
-  products   Product[]
-  shopOrders ShopOrder[]
-  coupons    Coupon[]
+  owner             User               @relation(fields: [ownerId], references: [id])
+  products          Product[]
+  shopOrders        ShopOrder[]
+  coupons           Coupon[]
+  chatConversations ChatConversation[]
 
   @@index([ownerId])
   @@map("shops")
@@ -561,4 +577,49 @@ model Notification {
 
   @@index([userId, readAt, createdAt])
   @@map("notifications")
+}
+
+model ChatConversation {
+  id                 String    @id @default(uuid()) @db.Uuid
+  shopId             String    @map("shop_id") @db.Uuid
+  customerId         String    @map("customer_id") @db.Uuid
+  customerLastReadAt DateTime? @map("customer_last_read_at")
+  shopLastReadAt     DateTime? @map("shop_last_read_at")
+  lastMessageAt      DateTime  @default(now()) @map("last_message_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  shop     Shop          @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  customer User          @relation("ChatCustomer", fields: [customerId], references: [id], onDelete: Cascade)
+  messages ChatMessage[]
+
+  @@unique([shopId, customerId])
+  @@index([customerId, lastMessageAt])
+  @@index([shopId, lastMessageAt])
+  @@map("chat_conversations")
+}
+
+model ChatMessage {
+  id                 String         @id @default(uuid()) @db.Uuid
+  conversationId     String         @map("conversation_id") @db.Uuid
+  senderUserId       String?        @map("sender_user_id") @db.Uuid
+  senderType         ChatSenderType @map("sender_type")
+  content            String         @db.Text
+  clientMessageId    String?        @map("client_message_id") @db.Uuid
+  replyToMessageId   String?        @unique @map("reply_to_message_id") @db.Uuid
+  aiStatus           ChatAiStatus?  @map("ai_status")
+  aiModel            String?        @map("ai_model")
+  aiPromptTokens     Int?           @map("ai_prompt_tokens")
+  aiCompletionTokens Int?           @map("ai_completion_tokens")
+  createdAt          DateTime       @default(now()) @map("created_at")
+
+  conversation ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       User?            @relation(fields: [senderUserId], references: [id], onDelete: SetNull)
+  replyTo      ChatMessage?     @relation("ChatReply", fields: [replyToMessageId], references: [id], onDelete: SetNull)
+  replies      ChatMessage[]    @relation("ChatReply")
+
+  @@unique([conversationId, clientMessageId])
+  @@index([conversationId, createdAt, id])
+  @@index([senderUserId])
+  @@map("chat_messages")
 }

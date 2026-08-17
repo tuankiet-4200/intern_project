@@ -2,7 +2,7 @@
 
 Last updated: 2026-08-11
 
-Tài liệu này là quy trình vận hành production baseline cho monorepo Multi-Vendor Commerce Platform sau Phase 5E. Nó dùng cách diễn đạt platform-agnostic để có thể áp dụng trên VM, container platform hoặc PaaS. Trước khi go-live thật, đội vận hành phải thay các giá trị mẫu bằng secret/domain/resource thực tế và chạy workflow staging/restore/rollback với hạ tầng thật.
+Tài liệu này là quy trình vận hành production baseline cho monorepo Multi-Vendor Commerce Platform đến Phase 6. Nó dùng cách diễn đạt platform-agnostic để có thể áp dụng trên VM, container platform hoặc PaaS. Trước khi go-live thật, đội vận hành phải thay các giá trị mẫu bằng secret/domain/resource thực tế và chạy workflow staging/restore/rollback với hạ tầng thật.
 
 ## 1. Phạm vi và trạng thái
 
@@ -24,6 +24,7 @@ Giới hạn hiện tại:
 - Bank transfer có signed provider-neutral webhook và refund transaction; adapter/reconciliation theo provider cụ thể chưa có.
 - Persisted inbox dùng database outbox worker nhúng trong API; email/push/RabbitMQ delivery chưa nằm trong contract hiện tại.
 - Access token phía Web đã memory-only; static Turbopack CSP còn cần `unsafe-inline`, nên mọi third-party script/widget phải qua security review.
+- Socket.IO và AI background generation hiện phù hợp single API process. Multi-replica cần Redis adapter cho room fan-out và durable queue/worker cho AI retry/recovery.
 
 ## 2. Kiến trúc deploy đề xuất
 
@@ -34,6 +35,7 @@ Internet
       -> NestJS API
           -> Managed PostgreSQL
           -> Managed Redis (distributed limiter)
+          -> DeepSeek API (outbound HTTPS, optional per-shop AI)
           -> RabbitMQ (future domain events)
 ```
 
@@ -79,6 +81,10 @@ API:
 | `BANK_TRANSFER_PROVIDER` | Stable namespace, không đổi sau khi đã nhận event/reference |
 | `BANK_TRANSFER_WEBHOOK_SECRET` | HMAC secret tối thiểu 32 ký tự từ secret manager |
 | `PAYMENT_WEBHOOK_TOLERANCE_SECONDS` | Replay window, khuyến nghị `300`, tối thiểu `30` |
+| `DEEPSEEK_API_KEY` | Secret server-side; bắt buộc trước khi shop có thể bật AI chat |
+| `DEEPSEEK_BASE_URL` | Mặc định `https://api.deepseek.com`; chỉ đổi qua reviewed provider gateway |
+| `DEEPSEEK_MODEL` | Model deploy được phê duyệt; baseline `deepseek-v4-flash` |
+| `DEEPSEEK_TIMEOUT_MS` | Outbound timeout 1-60 giây; baseline `20000` |
 
 Web:
 
@@ -93,6 +99,14 @@ Infrastructure/future integrations:
 - Provider API credential khi thêm request-out adapter/reconciliation; webhook secret ở trên đã bắt buộc cho callback.
 
 Không log các biến secret.
+
+Chat production checks:
+
+- Load balancer hỗ trợ WebSocket upgrade; polling phải vẫn hoạt động khi upgrade thất bại.
+- Một API replica chỉ là baseline hiện tại. Nếu nhiều replica, không rollout trước khi Socket.IO có Redis adapter hoặc transport được thay bằng managed realtime bus.
+- Alert khi source chat message ở `ai_status=PENDING` quá SLA; worker/recovery job chưa có trong baseline single-process.
+- DeepSeek outbound egress chỉ cho HTTPS tới allowlist; log status/latency/model/message ID nhưng không log key, system prompt hay toàn bộ nội dung riêng tư.
+- AI phải được bật có chủ đích theo shop sau khi staging kiểm tra catalog grounding; không bulk-enable bằng migration.
 
 ## 4. CI quality gate
 

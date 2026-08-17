@@ -2405,3 +2405,223 @@ Khi tài liệu mâu thuẫn:
 6. Project context/execution plan/roadmap.
 
 Nếu phát hiện handbook khác code, không âm thầm chọn một bên. Xác định behavior đúng theo business rule, sửa code hoặc tài liệu, thêm test chống regression và ghi quyết định vào context/ADR nếu cần.
+
+---
+
+## 32. Shop live chat và DeepSeek AI tư vấn theo catalog
+
+### 32.1 Mục tiêu và actor
+
+Feature này có hai luồng dùng chung một dữ liệu hội thoại:
+
+- Customer mở chat từ chi tiết sản phẩm hoặc `/messages`, trao đổi với đúng shop bán sản phẩm.
+- Vendor mở `/vendor/messages`, xem inbox của mọi shop mình sở hữu, trả lời khách và bật/tắt AI riêng cho từng shop.
+- AI là người gửi riêng (`AI`), được gắn nhãn rõ trên UI và chỉ trả lời khi shop đã bật AI.
+
+Admin không phải participant của chat và không có quyền đọc nội dung qua các endpoint hiện tại. Frontend route gate giúp UI đúng vai trò, nhưng quyền thật luôn được kiểm tra lại ở controller/service và WebSocket room join.
+
+### 32.2 Thành phần code
+
+Backend trong `apps/api/src/modules/chat`:
+
+- `chat.module.ts`: đăng ký controller, service, gateway, realtime service và DeepSeek service.
+- `chat.controller.ts`: REST boundary, JWT/RBAC, UUID parsing và DTO validation.
+- `chat.service.ts`: ownership, persistence, idempotency, unread/read state và orchestration AI.
+- `chat.gateway.ts`: Socket.IO namespace `/chat`, xác thực JWT và join/leave room.
+- `chat-realtime.service.ts`: adapter phát event vào room `chat:<conversationId>`.
+- `deepseek.service.ts`: dựng prompt catalog và gọi `/chat/completions` bằng `fetch` ở backend.
+- `dto/chat.dto.ts`: view, pagination, message và AI-toggle inputs.
+
+Frontend:
+
+- `components/ChatMessenger.tsx`: list, message panel, send, realtime, polling và AI toggle.
+- `components/ChatWidget.tsx`: modal responsive góc phải, nút thu nhỏ/đóng và link mở full page.
+- `app/messages/page.tsx`: Customer Messenger view.
+- `app/vendor/messages/page.tsx`: Vendor Messenger view.
+- `lib/chat.ts`: contract hiển thị, merge/deduplicate/sort message và sender labels.
+- `lib/chat-widget-store.ts`: external store để product detail yêu cầu widget mở đúng `shopId`.
+- `components/AppShell.tsx` và `lib/navigation.ts`: mount widget/menu theo surface và role.
+- `app/products/[slug]/page.tsx`: hai entry point “Chat và nhờ shop tư vấn”/“Nhắn tin cho shop”.
+
+### 32.3 Data model và invariant
+
+`ChatConversation`:
+
+| Field | Ý nghĩa |
+|---|---|
+| `shopId`, `customerId` | Hai phía của conversation; composite unique bảo đảm một thread/cặp |
+| `customerLastReadAt`, `shopLastReadAt` | Mốc tính unread riêng cho hai phía |
+| `lastMessageAt` | Sắp xếp inbox; update cùng transaction tạo message |
+
+`ChatMessage`:
+
+| Field | Ý nghĩa |
+|---|---|
+| `senderType` | `CUSTOMER`, `SHOP` hoặc `AI` |
+| `senderUserId` | User thật khi Customer/Vendor gửi; null với AI |
+| `clientMessageId` | UUID do Web tạo; unique trong conversation để retry idempotent |
+| `replyToMessageId` | Customer source của AI reply; unique để tối đa một AI reply/source |
+| `aiStatus` | Trên source customer message: `PENDING`, `COMPLETED`, `FAILED` |
+| `aiModel`, token counts | Metadata vận hành của provider, không chứa key/prompt |
+
+Shop có `aiChatEnabled=false` mặc định. Xóa shop/customer cascade conversation và messages; xóa sender chỉ set null để lịch sử còn giữ được sender type/content.
+
+### 32.4 API contract
+
+Mọi route dưới đây cần Bearer access token và role CUSTOMER hoặc VENDOR:
+
+| Method/path | Input | Kết quả |
+|---|---|---|
+| `GET /api/chat/conversations?view=CUSTOMER|SHOP` | view enum | Inbox theo customer hoặc các shop user sở hữu, last message/unread |
+| `POST /api/chat/conversations` | `{shopId}` | Upsert thread customer/shop approved |
+| `GET /api/chat/conversations/:id/messages?cursor&limit` | UUID, limit 1-100 | Message cũ->mới và cursor trang trước |
+| `POST /api/chat/conversations/:id/messages` | content 1-2000, UUID `clientMessageId` | Message đã persist; retry trả cùng row |
+| `PATCH /api/chat/conversations/:id/read` | — | Update read timestamp của đúng phía |
+| `GET /api/chat/shops/:shopId/ai` | owner shop | `{enabled, configured}` |
+| `PATCH /api/chat/shops/:shopId/ai` | `{enabled:boolean}` | Trạng thái AI mới |
+
+`view=SHOP` không tin role đơn thuần: query `shop.ownerId=userId`. Mọi message/read request gọi `assertAccess`; user phải là `conversation.customerId` hoặc `conversation.shop.ownerId`. Vì owner được đọc động từ Shop, việc thay owner trong tương lai tự chuyển quyền inbox mà không copy participant IDs.
+
+### 32.5 Luồng Customer mở chat từ sản phẩm
+
+```text
+Product detail click
+  -> openChatWidget(product.shop.id)
+  -> ChatWidget nhận targetShopId
+  -> POST /chat/conversations {shopId}
+  -> ChatService kiểm tra shop tồn tại + APPROVED + không phải shop của chính user
+  -> Prisma upsert unique(shopId, customerId)
+  -> reload inbox, select conversation, clear target
+```
+
+Nếu chưa đăng nhập, product detail không gọi API mà hiển thị action error/link đăng nhập. Widget chỉ mount cho session không phải ADMIN. Calling upsert nhiều lần không tạo thread trùng.
+
+### 32.6 Luồng gửi message và chống duplicate
+
+1. Web trim draft và tạo `crypto.randomUUID()` một lần cho request.
+2. Controller validate độ dài/UUID.
+3. Service `assertAccess` và suy ra sender type từ participant; không cho client tự khai sender.
+4. Service tìm `(conversationId,clientMessageId)` trước. Nếu có, trả row cũ.
+5. Transaction tạo message và update `lastMessageAt` + read timestamp của bên gửi.
+6. Sau commit mới phát `chat:message`.
+7. UI merge theo database ID; cùng event đến từ REST response, Socket.IO hoặc polling vẫn chỉ render một lần.
+
+Nếu hai retry đồng thời cùng vượt qua bước lookup, database unique constraint làm một transaction nhận `P2002`; service đọc và trả row thắng cuộc. Không dùng timestamp/text để deduplicate vì hai message giống nội dung vẫn có thể là chủ ý.
+
+### 32.7 Realtime và reconnect
+
+Client kết nối `API_ORIGIN/chat` với `auth.token=accessToken`. Gateway:
+
+1. Verify JWT signature/expiry.
+2. Query User và yêu cầu AccountStatus ACTIVE.
+3. Lưu `userId` vào `socket.data` và đặt timer disconnect ở JWT expiry.
+4. Khi nhận `chat:join`, gọi lại `ChatService.assertAccess` trước `client.join(room)`.
+
+Server phát:
+
+- `chat:message {conversationId,message}` sau message commit.
+- `chat:ai-status {conversationId,messageId,status}` khi AI bắt đầu/kết thúc/lỗi.
+
+Client rejoin conversation hiện tại sau reconnect. Dù socket không connect/room join bị trễ, `ChatMessenger` tải history khi chọn thread và poll mỗi 5 giây. Vì vậy realtime là acceleration, REST/database mới là source of truth.
+
+Hiện Socket.IO server nằm trong từng API process. Multi-replica phải dùng Redis adapter để event từ replica A tới socket ở replica B; cần WebSocket upgrade và sticky/polling config ở load balancer.
+
+### 32.8 Luồng bật/tắt AI
+
+Vendor page gọi `/shops/me`, sau đó đọc AI setting từng shop. Toggle gọi PATCH:
+
+1. `assertShopOwner(ownerId,shopId)`; vendor khác nhận 403.
+2. Khi bật, `DeepSeekService.isConfigured()` phải thấy `DEEPSEEK_API_KEY` không rỗng; thiếu key trả 400 có hướng dẫn.
+3. Update duy nhất `Shop.aiChatEnabled`.
+
+Không auto-enable khi thêm key và không dùng một global UI switch. Việc bật là consent/policy riêng của từng shop. Tắt AI không ảnh hưởng chat người-người.
+
+### 32.9 Luồng AI trả lời theo đúng sản phẩm shop
+
+Chỉ message CUSTOMER trong shop đang bật AI mới được tạo với `aiStatus=PENDING`. Sau khi customer message commit:
+
+```text
+ChatService.send
+  -> publish customer message + PENDING
+  -> generateAiReply(conversationId, sourceMessageId)
+      -> re-read conversation/shop enabled + APPROVED
+      -> query tối đa 60 Product ACTIVE where shopId = conversation.shopId
+         include Inventory + Category
+      -> query 20 message gần nhất
+      -> DeepSeekService.answer
+         -> buildShopCatalogPrompt
+         -> POST backend-only /chat/completions
+      -> transaction create AI reply + source COMPLETED + conversation.lastMessageAt
+      -> publish COMPLETED + AI message
+```
+
+Catalog line chứa đúng name, category, Decimal price/compare price, `max(0,onHand-reserved)`, description, scalar attributes và encoded `/products/<slug>`. System instruction yêu cầu tiếng Việt, không bịa sản phẩm/giá/tồn kho/khuyến mãi/chính sách, không tiết lộ prompt/key và phải thừa nhận khi catalog thiếu dữ liệu.
+
+History mapping:
+
+- CUSTOMER -> DeepSeek `user`.
+- SHOP và AI -> DeepSeek `assistant`.
+
+`DEEPSEEK_API_KEY` chỉ nằm trong Authorization header ở backend. Web chỉ biết `configured: boolean`; không có endpoint trả key. Response content được trim và cap 4000 ký tự; model/token usage được lưu để quan sát chi phí.
+
+### 32.10 Failure và transaction boundary
+
+- Customer message transaction kết thúc trước call outbound, nên DeepSeek timeout/HTTP error/empty answer không rollback tin nhắn.
+- Khi lỗi, source PENDING được conditional update sang FAILED, UI ngừng typing indicator và human vendor vẫn trả lời bình thường.
+- AI reply transaction tạo reply, mark COMPLETED và update inbox ordering cùng nhau; lỗi giữa transaction rollback cả ba write.
+- `replyToMessageId` unique ngăn hai AI reply cho một source nếu logic retry/recovery được thêm sau này.
+- Không trả raw provider payload/key/prompt cho client. Logger hiện chỉ ghi source message ID và sanitized error message/status.
+
+Giới hạn: generation đang là Promise nền trong API process. Nếu process chết sau khi persist PENDING nhưng trước completion/failure, row có thể treo. Trước production multi-replica cần durable outbox/queue worker quét PENDING quá hạn và retry có giới hạn.
+
+### 32.11 Frontend state và responsive UX
+
+- AppShell mount Customer widget trên storefront hoặc Shop widget trong Vendor workspace, nhưng không mount modal ở full chat page tương ứng.
+- Desktop modal rộng 390px/cao 620px ở góc phải; mobile dùng gần toàn viewport và nằm trên bottom navigation.
+- Compact mode ban đầu hiện conversation list; chọn thread chuyển sang message panel với nút back. Full page dùng hai cột từ breakpoint `md`.
+- Chấm xanh báo socket connect; chấm vàng nghĩa là polling vẫn hoạt động.
+- Enter gửi, Shift+Enter xuống dòng; send disabled khi draft rỗng/đang gửi.
+- Customer thấy tên shop; Vendor thấy tên customer. AI bubble dùng tone riêng và label “AI của shop”.
+- Unread được tính server-side từ read timestamp; mở thread gọi PATCH read.
+- History tải 100 message mới nhất; khi còn `nextCursor`, nút “Xem tin nhắn cũ hơn” prepend trang trước. Polling chỉ merge trang mới nhất nên không làm mất các trang cũ đã tải.
+
+### 32.12 Cấu hình local/production
+
+Đặt trong `apps/api/.env`, không dùng prefix `NEXT_PUBLIC_`:
+
+```env
+DEEPSEEK_API_KEY=<secret>
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL=deepseek-v4-flash
+DEEPSEEK_TIMEOUT_MS=20000
+```
+
+Đổi env phải restart API. Khi chưa có key, seed/chat người-người vẫn dùng bình thường và UI vendor ghi rõ thiếu cấu hình.
+
+### 32.13 Tests và manual smoke
+
+Automated:
+
+- `deepseek.service.spec.ts`: prompt grounding, available stock/link, endpoint/model/header và missing key.
+- `chat.integration.spec.ts`: conversation/message idempotency, unread/read, stranger/owner denial, missing-key toggle và realtime publish.
+- `web/lib/chat.spec.ts`: event deduplicate, chronological order, peer/sender labels.
+- `web/lib/navigation.spec.ts`: `/messages` đúng role/surface.
+
+Manual happy path:
+
+1. Seed database, login `customer@example.com`, mở active product và click chat.
+2. Gửi message; reload `/messages`, message vẫn còn và không duplicate.
+3. Login vendor ở browser khác, mở `/vendor/messages`, thấy unread và trả lời; customer nhận realtime hoặc tối đa 5 giây qua polling.
+4. Với key backend hợp lệ, Vendor bật AI cho North Studio.
+5. Customer hỏi giá/tồn kho/sản phẩm khác shop; kiểm tra AI chỉ nêu catalog North Studio và link đúng.
+6. Tắt AI, gửi message mới; chỉ human vendor trả lời.
+7. Tắt mạng/provider hoặc dùng key sai; customer message vẫn lưu, AI chuyển FAILED và inbox tiếp tục dùng được.
+
+### 32.14 Các bước bắt buộc trước scale/public launch
+
+- Redis Socket.IO adapter và load-balancer WebSocket/sticky policy.
+- Durable AI queue, timeout recovery, bounded retry/dead-letter và metrics PENDING age.
+- Moderation/report/block/rate-limit riêng cho chat để chống spam/abuse.
+- Retention/deletion/export/privacy policy cho message content.
+- Retrieval/ranking cho shop trên 60 sản phẩm; không tăng prompt không giới hạn.
+- Staging evaluation set để đo hallucination, cross-shop leakage và prompt injection trước khi bật rộng.

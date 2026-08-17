@@ -8,6 +8,7 @@ import {
   FolderTree,
   Home,
   LayoutGrid,
+  MessageCircle,
   PackageSearch,
   ReceiptText,
   ShoppingBag,
@@ -20,6 +21,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { ChatWidget } from '@/components/ChatWidget';
 import { apiRequest, getSession, restoreSession, subscribeSession, type Session } from '@/lib/api';
 import {
   formatCartBadgeCount,
@@ -43,6 +45,7 @@ const ICONS: Record<NavigationIcon, typeof Home> = {
   cart: ShoppingCart,
   orders: ReceiptText,
   bell: Bell,
+  message: MessageCircle,
   shop: Store,
   products: PackageSearch,
   coupon: Tags,
@@ -153,6 +156,7 @@ function StorefrontShell({
           Mua sắm an tâm từ những cửa hàng đã được kiểm duyệt.
         </footer>
       ) : null}
+      {!authOnly && session && session.user.role !== 'ADMIN' && pathname !== '/messages' ? <ChatWidget session={session} mode="CUSTOMER" /> : null}
     </div>
   );
 }
@@ -211,6 +215,7 @@ function WorkspaceShell({
         </nav>
         <main className="mx-auto max-w-[1360px] px-4 py-6 sm:px-6 lg:px-8 lg:py-9">{children}</main>
       </section>
+      {surface === 'vendor' && session?.user.role === 'VENDOR' && pathname !== '/vendor/messages' ? <ChatWidget session={session} mode="SHOP" /> : null}
     </div>
   );
 }

@@ -1,11 +1,12 @@
 import { AppShell } from '@/components/AppShell';
-import { ArrowRight, BadgePercent, Box, CheckCircle2, ClipboardList, Store, TrendingUp } from 'lucide-react';
+import { ArrowRight, BadgePercent, Box, CheckCircle2, ClipboardList, MessageCircle, Store, TrendingUp } from 'lucide-react';
 import Link from 'next/link';
 
 const OPERATIONS = [
   { href: '/vendor/shop', title: 'Hồ sơ cửa hàng', description: 'Theo dõi trạng thái duyệt và thông tin gian hàng.', icon: Store, tone: 'bg-sky-100 text-sky-700' },
   { href: '/vendor/products', title: 'Quản lý sản phẩm', description: 'Tạo sản phẩm, cập nhật tồn kho và trạng thái bán.', icon: Box, tone: 'bg-emerald-100 text-emerald-700' },
   { href: '/vendor/orders', title: 'Xử lý đơn bán', description: 'Xác nhận, đóng gói, bàn giao hoặc hủy đơn.', icon: ClipboardList, tone: 'bg-amber-100 text-amber-700' },
+  { href: '/vendor/messages', title: 'Chat với khách', description: 'Tư vấn trực tuyến và quản lý trợ lý AI theo từng shop.', icon: MessageCircle, tone: 'bg-cyan-100 text-cyan-700' },
   { href: '/vendor/coupons', title: 'Khuyến mãi', description: 'Tạo coupon riêng cho cửa hàng và quản lý chiến dịch.', icon: BadgePercent, tone: 'bg-violet-100 text-violet-700' },
 ];
 
@@ -28,7 +29,7 @@ export default function VendorPage() {
           <div><p className="eyebrow">Công việc hằng ngày</p><h2 className="mt-2 text-2xl font-black tracking-[-0.025em]">Khu vực vận hành</h2></div>
           <span className="hidden items-center gap-2 text-sm font-semibold text-[var(--muted)] sm:flex"><TrendingUp size={16} /> Đúng vai trò Vendor</span>
         </div>
-        <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
           {OPERATIONS.map(({ href, title, description, icon: Icon, tone }) => (
             <Link key={href} href={href} className="surface-card group p-5 transition duration-200 hover:-translate-y-1 hover:border-[#b9d1c6] hover:shadow-[var(--shadow-md)]">
               <span className={`flex h-11 w-11 items-center justify-center rounded-xl ${tone}`}><Icon size={21} /></span>

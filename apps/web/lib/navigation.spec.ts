@@ -4,7 +4,7 @@ import { canAccessPath, navigationFor, resolveSurface, workspaceHref } from './n
 describe('role-aware navigation', () => {
   it('separates customer, vendor, and admin navigation', () => {
     expect(navigationFor('customer', 'CUSTOMER').map((item) => item.href)).toEqual([
-      '/', '/cart', '/orders', '/notifications',
+      '/', '/cart', '/orders', '/messages', '/notifications',
     ]);
     expect(navigationFor('vendor', 'VENDOR').map((item) => item.href)).toContain('/vendor/products');
     expect(navigationFor('admin', 'ADMIN').map((item) => item.href)).toContain('/admin/refunds');
@@ -29,6 +29,8 @@ describe('role-aware navigation', () => {
     expect(canAccessPath('/admin/shops', 'VENDOR')).toBe(false);
     expect(canAccessPath('/admin/shops', 'ADMIN')).toBe(true);
     expect(canAccessPath('/vendor/orders', 'VENDOR')).toBe(true);
+    expect(canAccessPath('/messages', 'CUSTOMER')).toBe(true);
+    expect(canAccessPath('/messages')).toBe(false);
     expect(resolveSurface('/admin/coupons')).toBe('admin');
     expect(workspaceHref('ADMIN')).toBe('/admin');
     expect(workspaceHref('VENDOR')).toBe('/vendor');

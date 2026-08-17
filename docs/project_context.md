@@ -44,7 +44,6 @@ Included in the first 2-month plan:
 Explicitly out of scope for now:
 
 - Shipper app.
-- AI chatbot.
 - Product recommendation engine.
 
 ## Completed So Far
@@ -214,6 +213,20 @@ Phase 5F role-aware frontend UX:
 - Added coupon discovery details for scope, discount constraints, active dates and remaining usage; selecting a coupon no longer applies it before explicit confirmation.
 - Restricted CSP map access to the exact Nominatim origin and changed cross-origin referrer handling to satisfy provider identification without exposing path/query.
 
+Phase 6 shop live chat and AI:
+
+- Added persistent customer/shop conversations, message history, per-side read timestamps and unread counts.
+- Added authenticated REST list/start/history/send/read endpoints with participant and current shop-owner enforcement.
+- Added `clientMessageId` idempotency and one conversation per customer/shop at database level.
+- Added JWT-authenticated Socket.IO `/chat` rooms, realtime message/AI status events and a five-second REST polling fallback.
+- Added customer `/messages`, vendor `/vendor/messages`, role-aware navigation and a responsive bottom-right compact chat widget.
+- Added product-detail actions that open chat for the exact product shop.
+- Added per-shop AI on/off control, default off and blocked enablement when the backend DeepSeek key is missing.
+- Added backend-only DeepSeek integration with configurable base URL/model/timeout and no provider credential in browser code.
+- Grounded each AI request in only the exact shop's ACTIVE products, current available stock and recent history; instructions reject invented commercial facts and prompt/secret disclosure.
+- Kept customer messages durable when AI generation fails and tracked `PENDING`, `COMPLETED` or `FAILED` on the source message.
+- Added migration `20260817111452_phase6_shop_chat_ai`, demo conversation seed, prompt/unit tests and PostgreSQL ownership/idempotency integration coverage.
+
 Governance/context:
 
 - Added `.agents/senior-tech-lead.rules.md`.
@@ -317,6 +330,14 @@ Verified:
 - Fresh production `/cart` HTTP smoke returned 200 with the Nominatim-only connect allowlist and `strict-origin-when-cross-origin`; production dependency audit returned zero vulnerabilities after pinning patched transitive `nanoid` 3.3.18.
 - Fixed map search reloading Cart/Profile by removing the nested search form inside `AddressForm`; search button and Enter now invoke geocoding without submitting the address form. Web regression is 8 suites/27 tests.
 - Fixed geocoding blocked by a stale/direct browser CSP path: search and reverse lookup now use validated same-origin Next route proxies with an identifying server User-Agent, one-request-per-second process queue and 24-hour cache. Live local smoke returned Hà Nội search and reverse results; Web regression is 9 suites/29 tests and the build exposes 21 routes.
+- Phase 6 API/Web lint and API production build passed; Web production build passed with 23 routes using webpack. Default Turbopack remains blocked by the environment's internal process-port restriction.
+- DeepSeek prompt/service tests passed: 1 suite, 3 tests. Chat PostgreSQL integration passed: 1 suite, 3 tests for conversation/message idempotency, read state, realtime publication and ownership boundaries.
+- Chat Web helper/navigation regression passed: 2 suites, 6 tests for deduplication, ordering, labels and role-aware routes.
+- Local API runtime smoke passed for demo customer/vendor login, both inbox views and vendor-owned AI settings: HTTP 200, one seeded thread per side, AI disabled/unconfigured as expected without a local key.
+- Local Socket.IO runtime smoke passed with a customer JWT: authenticated namespace connection succeeded and ownership-checked `chat:join` acknowledged `{ok:true}`. Authentication now runs as namespace middleware before the client receives `connect`, avoiding an initial room-join race.
+- Phase 6 visual browser click-through could not run because browser discovery returned no connected instance; route production compilation, localhost HTTP/API smoke and automated frontend/backend tests remain green.
+- Final Phase 6 regression passed: API 20 suites/43 tests, HTTP E2E 3 suites/4 tests and Web 10 suites/31 tests. API/Web lint and API build passed; Web webpack production build generated 23 routes including `/messages` and `/vendor/messages`.
+- Production dependency audit after adding Socket.IO client/server packages returned zero vulnerabilities.
 
 ## Current Risks / Gaps
 
@@ -334,10 +355,16 @@ Verified:
 - Browser discovery again returned no available in-app/Chrome instance, so the card fix was verified by the block/aspect-ratio source invariant, builds/tests and HTTP runtime rather than an automated screenshot.
 - Public OpenStreetMap/Nominatim endpoints are intentionally a low-volume local/demo integration. Production traffic requires a managed or self-hosted tile/geocoding service with reviewed quota, caching, attribution and privacy terms.
 - The current Nominatim proxy limiter/cache is process-local; a multi-replica production deployment must replace it with distributed enforcement or a provider contract.
+- Socket.IO room fan-out is process-local. Before horizontally scaling the API, add a Redis Socket.IO adapter and load-balancer WebSocket/sticky-session configuration.
+- AI generation currently runs as a best-effort background promise in the API process. A process restart can leave a source message `PENDING`; production should move generation to a durable queue/worker with timeout recovery.
+- Catalog grounding limits the prompt to 60 most recently updated ACTIVE products and 20 recent messages. Large shops need retrieval/search rather than sending their full catalog.
+- Chat content currently has retention/storage but no moderation, attachment upload or end-to-end encryption policy; define retention/privacy/abuse controls before public launch.
 
 ## Next Recommended Step
 
-The agreed provider-neutral application scope is complete. Remaining follow-up depends on external choices/access:
+The agreed application baseline, including shop chat and catalog-grounded AI, is complete. Remaining follow-up depends on external choices/access or scale requirements:
 
 1. Select and integrate the bank-transfer provider adapter/reconciliation job.
-2. Configure staging environment secrets/URLs and execute the supplied staging/backup/restore/load/rollback workflows on real infrastructure.
+2. Configure `DEEPSEEK_API_KEY` in the API secret manager, enable AI per shop and verify answers against staging catalog data.
+3. Add Redis Socket.IO fan-out and a durable AI job worker before multi-replica production rollout.
+4. Configure staging environment secrets/URLs and execute the supplied staging/backup/restore/load/rollback workflows on real infrastructure.

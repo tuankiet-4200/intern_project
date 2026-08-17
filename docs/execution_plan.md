@@ -1,6 +1,6 @@
 # Execution Plan
 
-Last updated: 2026-08-12
+Last updated: 2026-08-17
 
 This is the implementation source of truth for the build-from-scratch commerce platform. Agents must read this file together with `docs/project_context.md` before editing.
 
@@ -283,12 +283,39 @@ Remaining external integration:
 1. Provider-specific bank-transfer adapter and reconciliation job.
 2. Configure staging GitHub Environment secrets/URLs and a hosting rollout webhook, then execute the supplied workflow against the selected infrastructure.
 
+## Phase 6 - Shop Live Chat & Catalog-Grounded AI
+
+Status: complete for the application-level single-region baseline. Production multi-replica event fan-out and durable AI jobs remain operational hardening items.
+
+Done:
+
+- Added one persistent conversation per customer/shop and append-only customer/shop/AI messages.
+- Added participant and shop-owner authorization for inbox, history, send, read state and AI settings.
+- Added client-generated message IDs with a database unique constraint so REST retries do not duplicate messages.
+- Added Socket.IO room delivery with JWT handshake validation and a five-second REST polling fallback.
+- Added Customer and Vendor messenger pages plus the bottom-right compact chat modal.
+- Added product-detail entry points that open a conversation for the exact selling shop.
+- Added a per-shop, default-off AI toggle visible only to that shop's owner.
+- Integrated DeepSeek through a backend-only OpenAI-compatible request; configurable endpoint/model/key/timeout.
+- Grounded the AI system prompt using only that shop's approved active catalog, current available inventory and recent conversation history.
+- Preserved the customer message when DeepSeek is unavailable and exposed pending/completed/failed generation state.
+- Added migration `20260817111452_phase6_shop_chat_ai`, idempotent demo chat seed, unit/integration coverage and fresher documentation.
+
+Acceptance:
+
+- A non-participant cannot read, join or send to a conversation.
+- A vendor cannot read another vendor's inbox or change another shop's AI setting.
+- Retrying the same `clientMessageId` creates one message.
+- Realtime delivery and REST polling converge without duplicate rendering.
+- AI is off by default and cannot be enabled without a backend DeepSeek key.
+- AI receives no product catalog outside the target shop and may not invent missing commercial facts.
+- DeepSeek failure never rolls back or deletes the customer's message.
+
 ## Backlog
 
 Do not implement unless the user explicitly changes scope:
 
 - Shipper app.
-- AI chatbot.
 - Product recommendation engine.
 - Dedicated search engine.
 - Microservice extraction.

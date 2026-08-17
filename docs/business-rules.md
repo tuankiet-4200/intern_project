@@ -82,3 +82,14 @@ Payment:
 
 - Customer chi review product da giao thanh cong.
 - Moi customer moi product/order item chi review mot lan.
+
+## Shop Chat & AI
+
+- Mỗi cặp customer/shop chỉ có một conversation; lịch sử message được giữ theo thời gian.
+- Chỉ customer của conversation và owner hiện tại của shop được đọc, gửi, đánh dấu đã đọc hoặc join realtime room.
+- `clientMessageId` là UUID do client tạo và unique trong conversation để retry không sinh message trùng.
+- AI chatbot tắt mặc định theo từng shop; chỉ owner shop bật/tắt và chỉ bật khi server đã có `DEEPSEEK_API_KEY`.
+- Chỉ tin nhắn CUSTOMER mới được phép kích hoạt AI; tin nhắn SHOP/AI không tự kích hoạt vòng lặp.
+- AI chỉ nhận sản phẩm `ACTIVE` của đúng shop, kèm giá, mô tả, thuộc tính và `onHand - reserved`; không được suy đoán dữ liệu chưa có.
+- AI/API provider lỗi không rollback tin nhắn customer. Source message đổi `PENDING -> COMPLETED|FAILED`; AI reply tham chiếu source qua `replyToMessageId` unique.
+- DeepSeek key và system prompt chỉ tồn tại ở backend, không trả về WebSocket/REST response hoặc log.
