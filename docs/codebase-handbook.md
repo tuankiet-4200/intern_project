@@ -478,6 +478,7 @@ User 1 --- n UserAddress
 User 1 --- n RefreshSession
 User 1 --- n Shop
 User 1 --- 1 Cart (unique userId)
+User 1 --- n WishlistItem
 User 1 --- n ParentOrder
 ```
 
@@ -549,7 +550,17 @@ Lý do tách:
 
 `OrderItem` lưu `productName`, `productImage`, `unitPrice`, `quantity`, `lineTotal`. Sau khi product đổi tên/giá/ảnh, order cũ vẫn giữ đúng lịch sử mua.
 
-### 6.5 Money
+### 6.5 Wishlist
+
+```text
+User 1 --- n WishlistItem n --- 1 Product
+```
+
+Unique `(userId, productId)` là invariant ở database, không chỉ là kiểm tra frontend. Vì vậy hai request thêm đồng thời vẫn chỉ tạo một item. `WishlistItem` chỉ lưu quan hệ và `createdAt`; tên, giá, ảnh, shop và tồn kho luôn đọc từ Product hiện tại để người dùng không nhìn dữ liệu thương mại đã cũ.
+
+Xóa User hoặc Product cascade WishlistItem vì item không còn giá trị độc lập. Wishlist không reserve stock, không snapshot giá và không thay thế Cart.
+
+### 6.6 Money
 
 Database dùng `Decimal(12,2)` và code dùng `Prisma.Decimal`.
 
@@ -996,6 +1007,40 @@ Mọi stock change phải ghi ledger trong cùng transaction với inventory upd
 | Deliver 2 | -2 | -2 | +2 |
 
 Nếu inventory thay đổi mà ledger không có record tương ứng, đó là bug audit nghiêm trọng.
+
+---
+
+### 13.5 Luồng wishlist
+
+Wishlist dành cho user đã xác thực có role CUSTOMER hoặc VENDOR. ADMIN quản trị catalog nhưng không có hành vi mua sắm này.
+
+Các endpoint:
+
+- `GET /wishlist?page=1&limit=20`: danh sách đầy đủ, phân trang.
+- `GET /wishlist/product-ids`: payload ID gọn để tô trạng thái heart trên Marketplace.
+- `PUT /wishlist/items/:productId`: thêm idempotent.
+- `DELETE /wishlist/items/:productId`: xóa idempotent.
+
+Luồng thêm:
+
+1. `JwtAuthGuard` xác định user; `RolesGuard` chặn role ngoài CUSTOMER/VENDOR.
+2. Service đọc Product cùng status Shop.
+3. Product không tồn tại trả `404`; product không ACTIVE hoặc shop không APPROVED trả `400`.
+4. Prisma `upsert` theo unique `(userId, productId)`. Retry hoặc double-click không tạo bản ghi trùng.
+5. Response `{ productId, wished: true }` để UI cập nhật Set cục bộ ngay.
+
+Luồng list luôn filter `where: { userId }`, select safe product fields rồi tính:
+
+```text
+available = max(0, onHand - reserved)
+isPurchasable = product ACTIVE && shop APPROVED && available > 0
+```
+
+Một product đã lưu có thể chuyển DRAFT, hết hàng hoặc shop bị suspend. Row Wishlist vẫn được giữ và list trả `isPurchasable=false`; đây là hành vi có chủ ý để user còn nhận ra lựa chọn cũ. Nút thêm giỏ bị khóa, còn Cart/Checkout vẫn revalidate độc lập nếu trạng thái đổi sau lúc render.
+
+Remove dùng `deleteMany({ userId, productId })` và luôn trả `wished:false`. Filter user ngay trong write vừa enforce ownership vừa làm request lặp an toàn. Add/remove chỉ ghi một bảng nên không cần transaction nhiều bước; database unique constraint là lớp chống concurrency cuối cùng.
+
+Integration test phải dùng PostgreSQL thật để chứng minh unique, ownership, trạng thái unavailable và available stock; mock service không đủ chứng minh unique constraint.
 
 ---
 
@@ -1803,6 +1848,9 @@ Frontend route gate có unit test tại `lib/navigation.spec.ts` cho menu theo r
 - Public load song song `/products?limit=24` và `/categories`.
 - Search input và từ khóa đã submit là hai state riêng. Submit gọi lại `/products` bằng query `search` và `categoryId`; khi input bị xóa trắng, frontend gỡ ngay submitted search và tải lại catalog không có query `search`, không yêu cầu bấm Tìm lần nữa. Đổi category dùng submitted search chứ không vô tình áp text mới đang gõ. Backend vẫn lọc product ACTIVE, approved shop và available stock.
 - Tính `available = onHand - reserved` để display và khóa nút khi hết hàng.
+- Card hiển thị tồn kho ở cả badge ảnh (`Còn n`) và dòng nội dung `Kho: n`; con số đều dùng `available`, không dùng `onHand` thô.
+- CUSTOMER/VENDOR đã đăng nhập tải `GET /wishlist/product-ids`; mỗi card có heart độc lập với Link chi tiết. Heart dùng `PUT`/`DELETE`, cập nhật một `Set` immutable và không làm reload catalog.
+- Anonymous vẫn thấy heart nhưng được hướng dẫn đăng nhập; ADMIN không thấy hành động Wishlist. State gắn với `session.user.id` để logout/đổi account không lộ heart của user trước.
 - Add to cart gọi protected `/cart/items`, nhận cart mới và cập nhật badge header ngay.
 - Nếu chưa login, helper trả lỗi yêu cầu sign in và UI hiển thị link login; success/error không làm mất catalog đang có.
 - Product image dùng URL đầu tiên trong `images`; khi chưa có ảnh, card dùng visual placeholder nhất quán thay vì khối xám trống.
@@ -1871,7 +1919,16 @@ Checkout:
 5. Success -> `/orders?created=<id>`.
 6. Failure -> giữ key để retry cùng payload không duplicate.
 
-### 22.7 `/orders`
+### 22.7 `/wishlist`
+
+- Route chỉ cho CUSTOMER/VENDOR theo frontend gate; backend JWT/RBAC vẫn là security boundary.
+- Load `GET /wishlist?page=<page>&limit=20`, hiển thị tổng, pagination, loading/error/empty states.
+- Mỗi card dùng dữ liệu Product hiện tại và current `available`. Product không còn public vẫn xuất hiện với nhãn “Tạm ngừng bán” và nút giỏ bị khóa.
+- Xóa gọi endpoint idempotent rồi reload page. Nếu xóa item cuối của trang sau nhưng danh sách vẫn còn, UI tự lùi một trang hợp lệ.
+- Add-to-cart gọi `/cart/items` quantity 1; response `itemCount` đồng bộ global cart badge ngay.
+- Product name/image link tới public detail bằng helper chuẩn hóa slug; remove/cart là button riêng, không lồng interactive element trong Link.
+
+### 22.8 `/orders`
 
 - Load song song customer ParentOrders và reviews của current user.
 - Render từng ShopOrder và OrderItem snapshot.
@@ -1880,13 +1937,13 @@ Checkout:
 - Với delivered item chưa review, hiện form rating/comment; item đã review hiện kết quả.
 - Silent poll mỗi 15 giây và hiển thị last-updated time.
 
-### 22.8 `/vendor/shop`
+### 22.9 `/vendor/shop`
 
 - Load shop của current user.
 - Nếu chưa có, hiện form onboarding.
 - Nếu approved, có thể đi quản lý product.
 
-### 22.9 `/vendor/products`
+### 22.10 `/vendor/products`
 
 - Load `/shops/me` và categories.
 - Chọn shop đầu tiên hiện tại.
@@ -1904,7 +1961,7 @@ Hiện form lưu URL ảnh, không upload binary/base64. Upload file trực ti�
 
 Integration test catalog kiểm tra create/update mọi merchandising field, ownership, compare-at validation và archive terminal. Web helper test kiểm tra URL trim/dedupe/protocol/reorder cùng attribute completeness/uniqueness/scalar restoration. Catalog card image link bắt buộc là block-level để `aspect-ratio` không collapse; đây là regression guard cần giữ khi đổi wrapper interactive.
 
-### 22.10 `/vendor/orders`
+### 22.11 `/vendor/orders`
 
 - Load shop hiện tại, sau đó load shop orders.
 - Map current status sang next status hợp lệ.
@@ -1912,7 +1969,7 @@ Integration test catalog kiểm tra create/update mọi merchandising field, own
 - Reload list sau transition.
 - Silent poll mỗi 15 giây để nhận order/status mới mà không flash loading state.
 
-### 22.11 `/admin/shops`
+### 22.12 `/admin/shops`
 
 - Load `/admin/shops` theo trang, từ khóa và status; không chỉ lấy pending queue.
 - `searchInput` giữ text đang gõ còn `search` giữ filter đã áp dụng. Xóa trắng input đang có filter sẽ đặt page về 1, gỡ `search`; effect tự tải lại toàn bộ shop theo các filter status còn lại.
@@ -1921,7 +1978,7 @@ Integration test catalog kiểm tra create/update mọi merchandising field, own
 - Approve/reject/suspend/restore đều đi qua confirmation dialog; reject/suspend buộc nhập lý do tối thiểu năm ký tự.
 - Sau mutation, reload cả list và detail đang mở để UI không giữ trạng thái cũ.
 
-### 22.12 `/admin/users`
+### 22.13 `/admin/users`
 
 - Search tên/email/phone; filter role và account status; paginate 20 row.
 - Xóa trắng search input đang được áp dụng sẽ đặt page về 1 và tự tải lại mọi user theo role/status còn lại, không cần submit thêm lần nữa.
@@ -1930,14 +1987,14 @@ Integration test catalog kiểm tra create/update mọi merchandising field, own
 - Ban dùng dialog bắt buộc lý do; mở khóa vẫn xác nhận và giải thích shop không tự khôi phục.
 - Frontend chỉ hướng dẫn workflow. Self-ban, last-admin, stale JWT, session revocation và shop suspension đều được backend enforce.
 
-### 22.13 `/admin/categories`
+### 22.14 `/admin/categories`
 
 - Load flat admin list có parent/count dependencies.
 - Create root/child.
 - Toggle active.
 - Backend reject deactivate nếu còn active child/product.
 
-### 22.14 `/admin/coupons`
+### 22.15 `/admin/coupons`
 
 - Load tối đa 100 campaign cùng approved shops.
 - Form dùng chung create/edit cho scope, shop, type, value, min/cap, total/per-user limit và schedule.
@@ -1946,7 +2003,7 @@ Integration test catalog kiểm tra create/update mọi merchandising field, own
 - Edit economic terms sau usage vẫn được UI gửi nhưng backend reject; backend là business source of truth.
 - Activate/deactivate reload server state và hiển thị actionable error.
 
-### 22.15 `/vendor/coupons`
+### 22.16 `/vendor/coupons`
 
 - Load song song `/shops/me` và `/vendor/coupons`; chỉ shop APPROVED xuất hiện trong form.
 - Form create/edit luôn gửi `scope=SHOP`; backend vẫn kiểm tra ownership và không tin shopId từ browser.
@@ -1955,7 +2012,7 @@ Integration test catalog kiểm tra create/update mọi merchandising field, own
 - Card cho edit và activate/deactivate, sau mutation reload server state.
 - Vendor chưa có approved shop nhận empty/actionable state thay vì form không dùng được.
 
-### 22.16 `/admin/refunds`
+### 22.17 `/admin/refunds`
 
 - Load `/payments` có order/customer/refund histories.
 - Chỉ payment `PAID` hoặc `PARTIALLY_REFUNDED` được chọn để refund.
@@ -1963,7 +2020,7 @@ Integration test catalog kiểm tra create/update mọi merchandising field, own
 - COD yêu cầu checkbox xác nhận offline refund; bank transfer giải thích rõ kết quả sẽ PENDING chờ callback.
 - Sau mutation reload payment/refund state. Amount/reason/provider reference/history được hiển thị để admin audit.
 
-### 22.17 `/notifications`
+### 22.18 `/notifications`
 
 - Load page notification của current session.
 - Toggle unread-only tạo query mới; mark one/all gọi endpoint scoped theo current user.
@@ -2024,6 +2081,10 @@ Mọi path dưới đây có prefix `/api`.
 | PATCH | `/cart/items/:id` | Cart owner | Update quantity |
 | DELETE | `/cart/items/:id` | Cart owner | Remove item |
 | DELETE | `/cart` | Cart owner | Clear cart |
+| GET | `/wishlist` | Customer/Vendor | Own saved products, paginated |
+| GET | `/wishlist/product-ids` | Customer/Vendor | Own saved product IDs for card state |
+| PUT | `/wishlist/items/:productId` | Customer/Vendor | Idempotently save public product |
+| DELETE | `/wishlist/items/:productId` | Customer/Vendor | Idempotently remove own saved product |
 | POST | `/checkout/quote` | Customer/Vendor | Reprice cart |
 | POST | `/checkout/commit` | Customer/Vendor | Atomic checkout |
 | GET | `/admin/coupons` | Admin | Search/paginate campaigns |
@@ -2105,6 +2166,9 @@ Không sửa migration cũ đã được chia sẻ/applied. Tạo migration mớ
 - Phase 5 financial reliability: partial-refund status, refunds/history, webhook event audit và provider reference uniqueness.
 - Phase 5 coupon campaigns: per-user limit, updated timestamp, usage lookup index và database limit constraints.
 - Phase 5 notifications/outbox: notification/outbox enums, durable event rows, idempotent inbox rows và query indexes.
+- Phase 6 shop chat/AI: conversations, messages, read state, AI state và shop setting.
+- Phase 7 admin governance: account status, admin audit log và shop transition metadata.
+- Phase 8 customer wishlist: unique user/product relation và list/product lookup indexes.
 
 ### 25.3 Seed
 
@@ -2153,6 +2217,7 @@ Kết nối PostgreSQL thật:
 - Coupon campaign rules, vendor ownership, discovery, immutable used terms, per-account enforcement và competing checkout.
 - Notification outbox delivery/idempotency, malformed-event quarantine và read ownership.
 - Review buyer/delivery/duplicate/ownership rules.
+- Wishlist idempotent add/remove, account isolation, public-add validation, unavailable retention và derived stock.
 - Refresh-session cleanup retention, active-row preservation và bounded deletion.
 - Redis rate limiter dùng hai instance để chứng minh quota chung và bốn instance/100 request để chứng minh atomic quota dưới concurrent load.
 
@@ -2190,6 +2255,8 @@ Test integration phải cleanup dữ liệu theo đúng dependency order: order 
 10. Request ID/security header/404 error shape được kiểm tra.
 
 `payments.e2e-spec.ts` bootstrap app với raw-body support và xác minh unsigned/stale callbacks bị `401`, exact HMAC callback được xử lý, request ID được giữ và replay không tạo event thứ hai.
+
+Wishlist PostgreSQL integration test tạo hai customer và một public product để chứng minh: add lặp chỉ có một row, ID/list đúng owner, user khác không thể remove, saved item vẫn hiển thị khi product chuyển DRAFT, add mới bị chặn và remove lặp an toàn. Web helper/navigation tests kiểm tra Set immutable, dedupe ID và route theo role.
 
 ### 26.4 Lệnh verification
 

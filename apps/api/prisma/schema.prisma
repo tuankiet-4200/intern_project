@@ -150,6 +150,7 @@ model User {
   chatConversations ChatConversation[] @relation("ChatCustomer")
   chatMessages      ChatMessage[]
   adminAuditLogs    AdminAuditLog[]
+  wishlistItems     WishlistItem[]
 
   @@map("users")
 }
@@ -246,17 +247,33 @@ model Product {
   createdAt      DateTime      @default(now()) @map("created_at")
   updatedAt      DateTime      @updatedAt @map("updated_at")
 
-  shop       Shop        @relation(fields: [shopId], references: [id])
-  category   Category    @relation(fields: [categoryId], references: [id])
-  inventory  Inventory?
-  orderItems OrderItem[]
-  cartItems  CartItem[]
-  reviews    Review[]
+  shop          Shop           @relation(fields: [shopId], references: [id])
+  category      Category       @relation(fields: [categoryId], references: [id])
+  inventory     Inventory?
+  orderItems    OrderItem[]
+  cartItems     CartItem[]
+  reviews       Review[]
+  wishlistItems WishlistItem[]
 
   @@index([shopId])
   @@index([categoryId])
   @@index([status])
   @@map("products")
+}
+
+model WishlistItem {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  productId String   @map("product_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productId])
+  @@index([userId, createdAt])
+  @@index([productId])
+  @@map("wishlist_items")
 }
 
 model Inventory {

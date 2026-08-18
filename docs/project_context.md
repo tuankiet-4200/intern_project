@@ -237,6 +237,14 @@ Phase 7 admin governance:
 - Added migration `20260817115846_phase7_admin_governance` plus JWT, helper and PostgreSQL governance coverage.
 - Fixed submitted-search clearing across Marketplace, Admin users and Admin shops: deleting the last character now removes the active search immediately and restores the complete list under any remaining category/role/status filters.
 
+Phase 8 customer Wishlist and catalog stock UX:
+
+- Added persistent user-owned `WishlistItem` data with database uniqueness, cascade cleanup and lookup indexes.
+- Added authenticated list/product-ID/add/remove APIs with pagination, idempotency, role checks and current purchasability/stock projection.
+- Added explicit `Kho: n` stock text and account-aware Wishlist heart controls to Marketplace product cards.
+- Added `/wishlist` with empty/error/loading states, pagination, unavailable-product retention, removal and cart-indicator synchronization.
+- Added migration `20260818090000_phase8_customer_wishlist`, PostgreSQL integration coverage and Web helper/navigation coverage.
+
 Governance/context:
 
 - Added `.agents/senior-tech-lead.rules.md`.
@@ -356,6 +364,11 @@ Verified:
 - Phase 7 HTTP E2E regression passed: 3 suites, 4 tests. Local runtime returned 200 for both Admin pages and for paginated Admin user/shop APIs; the same endpoints returned 403 to the demo customer.
 - Phase 7 visual Browser click-through could not run because no connected browser instance was available after connection retry; route compilation, runtime HTTP smoke and automated API/Web tests remain green.
 - Search-clear regression passed Web lint, 13 suites/38 tests and the 24-route webpack production build. Browser discovery again found no connected instance, so interaction QA is covered by the shared state-transition test and compiled page handlers in this session.
+- Phase 8 Wishlist migration applied successfully; Prisma reports all 9 migrations up to date.
+- Phase 8 API regression passed: 23 suites/51 tests; targeted Wishlist PostgreSQL integration passed 1 suite/2 tests; API lint and production build passed.
+- Phase 8 Web regression passed: 14 suites/40 tests; Web lint passed and webpack production build generated 25 routes including `/wishlist`.
+- Full HTTP E2E remained green: 3 suites/4 tests. Local runtime verified login, public product discovery, Wishlist add/list/ID/remove, current `available=48`, `isPurchasable=true`, and HTTP 200 for `/` plus `/wishlist`.
+- Phase 8 visual Browser click-through could not run because no connected browser instance was available after required setup/troubleshooting/retry; automated tests, production compilation and localhost HTTP/API smoke are green.
 
 ## Current Risks / Gaps
 
@@ -378,10 +391,11 @@ Verified:
 - AI generation currently runs as a best-effort background promise in the API process. A process restart can leave a source message `PENDING`; production should move generation to a durable queue/worker with timeout recovery.
 - Catalog grounding limits the prompt to 60 most recently updated ACTIVE products and 20 recent messages. Large shops need retrieval/search rather than sending their full catalog.
 - Chat content currently has retention/storage but no moderation, attachment upload or end-to-end encryption policy; define retention/privacy/abuse controls before public launch.
+- `GET /wishlist/product-ids` intentionally returns a compact full ID set for instant heart state; if individual wishlists grow to thousands of products, replace it with bounded membership checks or page-level authenticated projection.
 
 ## Next Recommended Step
 
-The agreed application baseline, including shop chat, catalog-grounded AI and Admin user/shop governance, is complete. Remaining follow-up depends on external choices/access or scale requirements:
+The agreed application baseline, including shop chat, catalog-grounded AI, Admin governance and persistent customer Wishlist, is complete. Remaining follow-up depends on external choices/access or scale requirements:
 
 1. Select and integrate the bank-transfer provider adapter/reconciliation job.
 2. Configure `DEEPSEEK_API_KEY` in the API secret manager, enable AI per shop and verify answers against staging catalog data.

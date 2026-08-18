@@ -27,6 +27,14 @@
 - Khong update truc tiep stock bang overwrite im lang. Moi thay doi di qua inventory ledger.
 - Available stock = on_hand - reserved.
 
+## Wishlist
+
+- Wishlist thuộc từng user; user không được đọc hoặc xóa item của tài khoản khác.
+- Mỗi cặp user/product chỉ có tối đa một item. Thêm lại cùng product và xóa item không tồn tại đều idempotent.
+- Chỉ product `ACTIVE` của shop `APPROVED` mới được thêm mới vào wishlist.
+- Product đã lưu vẫn nằm trong wishlist nếu sau đó hết hàng, chuyển draft hoặc shop ngừng hoạt động; UI phải đánh dấu không thể mua thay vì làm mất lựa chọn của user.
+- Wishlist không giữ chỗ tồn kho và không bảo đảm giá. Cart/checkout vẫn phải kiểm tra lại trạng thái, giá và `onHand - reserved`.
+
 ## Cart
 
 - Cart luu product id va quantity, gia chi la preview.

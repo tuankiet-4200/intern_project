@@ -335,6 +335,27 @@ Acceptance:
 - Re-enabling an account does not silently restore its shops.
 - Invalid shop status transitions and approval of a banned owner are rejected.
 
+## Phase 8 - Customer Wishlist & Catalog Stock UX
+
+Status: complete.
+
+Done:
+
+- Added persistent `WishlistItem` ownership with a unique user/product constraint and indexed list paths.
+- Added authenticated, paginated Wishlist APIs plus a compact product-ID endpoint for storefront heart state.
+- Made add/remove idempotent, restricted new saves to public products and retained previously saved products when they become unavailable.
+- Added independent heart actions and explicit `Kho: n` information to Marketplace product cards.
+- Added a role-aware `/wishlist` page with unavailable state, removal, pagination and add-to-cart synchronization.
+- Added migration `20260818090000_phase8_customer_wishlist`, PostgreSQL integration tests and Web state/navigation tests.
+
+Acceptance:
+
+- Wishlist data survives reload/login and is isolated by account.
+- Repeated add/remove requests do not create duplicates or errors.
+- Home heart controls do not navigate to product detail and reflect the current account's saved IDs.
+- Stock on each Home card is derived from `onHand - reserved` and never shown as a negative number.
+- Unavailable saved products remain visible but cannot be added to cart.
+
 ## Backlog
 
 Do not implement unless the user explicitly changes scope:

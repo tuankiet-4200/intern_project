@@ -2,7 +2,7 @@ import type { SessionUser } from './api';
 
 export type AppRole = SessionUser['role'];
 export type AppSurface = 'customer' | 'vendor' | 'admin' | 'auth';
-export type NavigationIcon = 'home' | 'cart' | 'orders' | 'bell' | 'message' | 'shop' | 'products' | 'coupon' | 'category' | 'refund' | 'users';
+export type NavigationIcon = 'home' | 'cart' | 'orders' | 'bell' | 'message' | 'shop' | 'products' | 'coupon' | 'category' | 'refund' | 'users' | 'heart';
 
 export type NavigationItem = {
   href: string;
@@ -14,6 +14,7 @@ export type NavigationItem = {
 const CUSTOMER_NAV: NavigationItem[] = [
   { href: '/', label: 'Khám phá', icon: 'home', exact: true },
   { href: '/cart', label: 'Giỏ hàng', icon: 'cart' },
+  { href: '/wishlist', label: 'Yêu thích', icon: 'heart' },
   { href: '/orders', label: 'Đơn mua', icon: 'orders' },
   { href: '/messages', label: 'Tin nhắn', icon: 'message' },
   { href: '/notifications', label: 'Thông báo', icon: 'bell' },
@@ -62,7 +63,7 @@ export function canAccessPath(pathname: string, role?: AppRole) {
   if (pathname.startsWith('/admin')) return role === 'ADMIN';
   if (pathname === '/vendor/shop') return role === 'CUSTOMER' || role === 'VENDOR';
   if (pathname.startsWith('/vendor')) return role === 'VENDOR';
-  if (pathname === '/cart' || pathname.startsWith('/orders') || pathname === '/messages') return role === 'CUSTOMER' || role === 'VENDOR';
+  if (pathname === '/cart' || pathname === '/wishlist' || pathname.startsWith('/orders') || pathname === '/messages') return role === 'CUSTOMER' || role === 'VENDOR';
   return true;
 }
 

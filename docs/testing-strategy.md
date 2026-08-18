@@ -1,6 +1,6 @@
 # Testing Strategy
 
-Last updated: 2026-08-17
+Last updated: 2026-08-18
 
 ## Testing Pyramid
 
@@ -38,6 +38,13 @@ Catalog:
 - Vendor cannot modify another vendor's product.
 - Category tree handles parent/child rules.
 - Product create/update persists description, compare-at price, images and scalar attributes; compare-at price must remain greater than selling price.
+
+Wishlist:
+
+- Adding the same user/product twice stores one row; deleting twice is idempotent.
+- List and remove operations are scoped to the authenticated user.
+- A product must be public when first saved; an already saved product remains listed with `isPurchasable=false` after it becomes unavailable.
+- Wishlist list returns non-negative current available stock and uses pagination.
 
 Inventory:
 
@@ -131,6 +138,9 @@ Frontend:
 - Geocoding proxy builders trim/bound search input, force Vietnam/Vietnamese upstream parameters and reject invalid coordinate ranges before any upstream request.
 - Async create forms retain the submitted form reference across `await`, reset only after API success and preserve entered values after rejection.
 - Submitted-search reset detects empty/whitespace-only input only when a non-empty filter is active, so clearing restores the full filtered list immediately without reload loops while typing.
+- Storefront Wishlist membership updates immutably, deduplicates product IDs and resets across account/session changes.
+- Customer/Vendor navigation exposes `/wishlist`; Admin navigation and route access do not.
+- Wishlist cards disable cart action for unavailable products and synchronize the global cart badge after a successful add.
 
 Operations:
 

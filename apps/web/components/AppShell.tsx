@@ -7,6 +7,7 @@ import {
   CircleDollarSign,
   FolderTree,
   Home,
+  Heart,
   LayoutGrid,
   MessageCircle,
   PackageSearch,
@@ -53,6 +54,7 @@ const ICONS: Record<NavigationIcon, typeof Home> = {
   category: FolderTree,
   refund: CircleDollarSign,
   users: UsersRound,
+  heart: Heart,
 };
 
 export function AppShell({ children }: { children: ReactNode }) {

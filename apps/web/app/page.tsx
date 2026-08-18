@@ -1,12 +1,15 @@
 'use client';
 
 import { AppShell } from '@/components/AppShell';
-import { apiRequest, formatVnd } from '@/lib/api';
+import { apiRequest, formatVnd, getSession, subscribeSession } from '@/lib/api';
 import { setCartItemCount } from '@/lib/cart-indicator';
 import { productDetailPath } from '@/lib/product-detail';
 import { shouldResetSubmittedSearch } from '@/lib/search-filter';
+import { updateWishlistMembership, wishlistProductIdSet } from '@/lib/wishlist';
 import {
+  Boxes,
   Check,
+  Heart,
   PackageSearch,
   Search,
   ShieldCheck,
@@ -16,7 +19,7 @@ import {
   Truck,
 } from 'lucide-react';
 import Link from 'next/link';
-import { FormEvent, useCallback, useEffect, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 
 type Category = {
   id: number;
@@ -35,7 +38,10 @@ type Product = {
   inventory: { onHand: number; reserved: number };
 };
 
+const EMPTY_WISHLIST_IDS = new Set<string>();
+
 export default function Home() {
+  const session = useSyncExternalStore(subscribeSession, getSession, () => null);
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [searchInput, setSearchInput] = useState('');
@@ -45,6 +51,9 @@ export default function Home() {
   const [loadError, setLoadError] = useState('');
   const [actionMessage, setActionMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [addingId, setAddingId] = useState('');
+  const [wishlistState, setWishlistState] = useState<{ userId: string; productIds: Set<string> }>({ userId: '', productIds: new Set() });
+  const [wishlistLoadingId, setWishlistLoadingId] = useState('');
+  const wishlistProductIds = session && wishlistState.userId === session.user.id ? wishlistState.productIds : EMPTY_WISHLIST_IDS;
 
   const loadProducts = useCallback(async (query = '', categoryId: number | null = null) => {
     setLoading(true);
@@ -69,6 +78,19 @@ export default function Home() {
       .finally(() => setLoading(false));
     apiRequest<Category[]>('/categories').then(setCategories).catch(() => setCategories([]));
   }, []);
+
+  useEffect(() => {
+    if (!session || session.user.role === 'ADMIN') return;
+    let active = true;
+    apiRequest<{ productIds: string[] }>('/wishlist/product-ids', {}, true)
+      .then((result) => {
+        if (active) setWishlistState({ userId: session.user.id, productIds: wishlistProductIdSet(result.productIds) });
+      })
+      .catch(() => {
+        if (active) setWishlistState({ userId: session.user.id, productIds: new Set() });
+      });
+    return () => { active = false; };
+  }, [session]);
 
   function submitSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -110,6 +132,32 @@ export default function Home() {
       });
     } finally {
       setAddingId('');
+    }
+  }
+
+  async function toggleWishlist(product: Product) {
+    if (!session) {
+      setActionMessage({ type: 'error', text: 'Bạn cần đăng nhập để lưu sản phẩm yêu thích.' });
+      return;
+    }
+    if (session.user.role === 'ADMIN') {
+      setActionMessage({ type: 'error', text: 'Tài khoản Admin không có danh sách mua sắm.' });
+      return;
+    }
+    const wished = wishlistProductIds.has(product.id);
+    setWishlistLoadingId(product.id);
+    setActionMessage(null);
+    try {
+      await apiRequest(`/wishlist/items/${product.id}`, { method: wished ? 'DELETE' : 'PUT' }, true);
+      setWishlistState((current) => ({
+        userId: session.user.id,
+        productIds: updateWishlistMembership(current.userId === session.user.id ? current.productIds : EMPTY_WISHLIST_IDS, product.id, !wished),
+      }));
+      setActionMessage({ type: 'success', text: wished ? `Đã bỏ “${product.name}” khỏi yêu thích.` : `Đã lưu “${product.name}” vào yêu thích.` });
+    } catch (requestError) {
+      setActionMessage({ type: 'error', text: requestError instanceof Error ? requestError.message : 'Không thể cập nhật danh sách yêu thích.' });
+    } finally {
+      setWishlistLoadingId('');
     }
   }
 
@@ -202,7 +250,17 @@ export default function Home() {
         {!loading && !loadError && products.length > 0 ? (
           <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {products.map((product, index) => (
-              <ProductCard key={product.id} product={product} index={index} adding={addingId === product.id} onAdd={() => void addToCart(product)} />
+              <ProductCard
+                key={product.id}
+                product={product}
+                index={index}
+                adding={addingId === product.id}
+                wished={wishlistProductIds.has(product.id)}
+                wishlistLoading={wishlistLoadingId === product.id}
+                canWishlist={session?.user.role !== 'ADMIN'}
+                onAdd={() => void addToCart(product)}
+                onWishlist={() => void toggleWishlist(product)}
+              />
             ))}
           </div>
         ) : null}
@@ -211,8 +269,26 @@ export default function Home() {
   );
 }
 
-function ProductCard({ product, index, adding, onAdd }: { product: Product; index: number; adding: boolean; onAdd: () => void }) {
-  const available = product.inventory.onHand - product.inventory.reserved;
+function ProductCard({
+  product,
+  index,
+  adding,
+  wished,
+  wishlistLoading,
+  canWishlist,
+  onAdd,
+  onWishlist,
+}: {
+  product: Product;
+  index: number;
+  adding: boolean;
+  wished: boolean;
+  wishlistLoading: boolean;
+  canWishlist: boolean;
+  onAdd: () => void;
+  onWishlist: () => void;
+}) {
+  const available = Math.max(0, product.inventory.onHand - product.inventory.reserved);
   const gradients = [
     'from-[#d9eee5] via-[#eef5dc] to-[#f1d4ad]',
     'from-[#e3e6f6] via-[#dbeee9] to-[#c8d8ea]',
@@ -223,20 +299,17 @@ function ProductCard({ product, index, adding, onAdd }: { product: Product; inde
 
   return (
     <article className="group overflow-hidden rounded-2xl border border-[var(--line)] bg-white transition duration-200 hover:-translate-y-1 hover:shadow-[var(--shadow-md)]">
-      <Link
-        href={productDetailPath(product.slug)}
-        aria-label={`Xem chi tiết ${product.name}`}
-        className={`relative block aspect-[4/3] overflow-hidden bg-gradient-to-br ${gradients[index % gradients.length]} bg-cover bg-center p-4`}
-        style={image ? { backgroundImage: `url(${JSON.stringify(image)})` } : undefined}
-      >
-        <span className="absolute left-4 top-4 rounded-full bg-white/85 px-2.5 py-1 text-[11px] font-bold text-[#315248] shadow-sm backdrop-blur">{product.category.name}</span>
+      <div className={`relative aspect-[4/3] overflow-hidden bg-gradient-to-br ${gradients[index % gradients.length]} bg-cover bg-center`} style={image ? { backgroundImage: `url(${JSON.stringify(image)})` } : undefined}>
+        <Link href={productDetailPath(product.slug)} aria-label={`Xem chi tiết ${product.name}`} className="absolute inset-0 z-10" />
+        <span className="pointer-events-none absolute left-4 top-4 z-20 rounded-full bg-white/85 px-2.5 py-1 text-[11px] font-bold text-[#315248] shadow-sm backdrop-blur">{product.category.name}</span>
         {!image ? (
           <span className="absolute inset-0 grid place-items-center text-[#244b40]/20"><PackageSearch size={68} strokeWidth={1.2} /></span>
         ) : null}
-        <span className="absolute bottom-4 right-4 rounded-lg bg-[#143c32]/90 px-2 py-1 text-[11px] font-bold text-white">Còn {available}</span>
-      </Link>
+        <span className="pointer-events-none absolute bottom-4 right-4 z-20 rounded-lg bg-[#143c32]/90 px-2 py-1 text-[11px] font-bold text-white">Còn {available}</span>
+        {canWishlist ? <button type="button" className={`absolute right-4 top-4 z-20 flex h-10 w-10 items-center justify-center rounded-full border shadow-md backdrop-blur transition ${wished ? 'border-rose-200 bg-rose-50 text-rose-600' : 'border-white/70 bg-white/90 text-[#315248] hover:text-rose-600'}`} onClick={onWishlist} disabled={wishlistLoading} aria-label={wished ? `Bỏ ${product.name} khỏi yêu thích` : `Thêm ${product.name} vào yêu thích`} aria-pressed={wished}>{wishlistLoading ? <span className="loading-spinner !h-4 !w-4 !border-2" /> : <Heart size={19} fill={wished ? 'currentColor' : 'none'} />}</button> : null}
+      </div>
       <div className="p-4">
-        <p className="flex items-center gap-1.5 text-xs font-semibold text-[var(--muted)]"><Store size={13} /> {product.shop.name}</p>
+        <div className="flex items-center justify-between gap-2 text-xs font-semibold text-[var(--muted)]"><p className="flex min-w-0 items-center gap-1.5"><Store className="shrink-0" size={13} /><span className="truncate">{product.shop.name}</span></p><p className="flex shrink-0 items-center gap-1 text-emerald-700"><Boxes size={13} /> Kho: {available}</p></div>
         <h3 className="mt-2 line-clamp-2 min-h-12 text-base font-extrabold leading-6"><Link href={productDetailPath(product.slug)} className="transition hover:text-[var(--accent)]">{product.name}</Link></h3>
         <div className="mt-4 flex items-center justify-between gap-3 border-t border-[var(--line)] pt-4">
           <span className="text-base font-black text-[var(--accent-strong)]">{formatVnd(product.price)}</span>

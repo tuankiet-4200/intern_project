@@ -15,6 +15,7 @@ import { PaymentsModule } from './modules/payments/payments.module';
 import { ReviewsModule } from './modules/reviews/reviews.module';
 import { ShopsModule } from './modules/shops/shops.module';
 import { UsersModule } from './modules/users/users.module';
+import { WishlistModule } from './modules/wishlist/wishlist.module';
 import { PrismaModule } from './prisma/prisma.module';
 
 @Module({
@@ -34,6 +35,7 @@ import { PrismaModule } from './prisma/prisma.module';
     OrdersModule,
     PaymentsModule,
     ReviewsModule,
+    WishlistModule,
   ],
   controllers: [HealthController],
   providers: [RateLimitMiddleware],
