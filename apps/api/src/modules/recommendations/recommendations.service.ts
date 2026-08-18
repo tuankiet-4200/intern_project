@@ -2,7 +2,11 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InteractionType, Prisma, ProductStatus, ShopStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RecommendationQueryDto } from './dto/recommendations.dto';
-import { candidateRecommendationScore, interactionSignalScore } from './recommendation-ranking';
+import {
+  candidateRecommendationScore,
+  diversifyRecommendationCandidates,
+  interactionSignalScore,
+} from './recommendation-ranking';
 
 type DbClient = PrismaService | Prisma.TransactionClient;
 
@@ -74,7 +78,7 @@ export class RecommendationsService {
       orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
     });
 
-    const ranked = candidates
+    const scoredCandidates = candidates
       .map((product) => ({
         product,
         score: candidateRecommendationScore({
@@ -85,8 +89,12 @@ export class RecommendationsService {
           now,
         }),
       }))
-      .sort((left, right) => right.score - left.score || left.product.id.localeCompare(right.product.id))
-      .slice(0, limit)
+      .sort((left, right) => right.score - left.score || left.product.id.localeCompare(right.product.id));
+    const ranked = diversifyRecommendationCandidates(
+      scoredCandidates,
+      categoryAffinity,
+      limit,
+    )
       .map(({ product }) => product);
     const personalizedCount = ranked.length;
 

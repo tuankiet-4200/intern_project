@@ -2952,6 +2952,15 @@ freshness = 1 / (1 + productAgeDays / 90)
 
 Tie dùng Product UUID tăng dần để kết quả deterministic. Nếu số candidate chưa đủ limit, trending bổ sung phần thiếu; lúc catalog quá nhỏ, item từng tương tác có thể xuất hiện lại ở phần fallback để shelf không rỗng.
 
+Sau bước sort theo score, service chạy thêm `diversifyRecommendationCandidates()` để một intent mới không thay toàn bộ shelf và một intent cũ mạnh không che mất hoàn toàn category vừa xem:
+
+1. Giữ candidate tốt nhất của từng category đang có affinity, theo affinity giảm dần, tối đa bằng số slot.
+2. Điền các slot còn lại theo score gốc.
+3. Khi có từ hai preferred category, một category chiếm tối đa 75% shelf nếu catalog còn candidate phù hợp. Với shelf bốn item, kết quả tối đa là 3/1 thay vì 4/0.
+4. Nếu catalog quá hẹp để thỏa quota, bỏ cap ở pass cuối và điền đủ số item có thể có; diversity không được tạo ô rỗng.
+
+Ví dụ: người dùng đã add Laptop vào Cart (`5 điểm`) rồi xem Điện thoại (`1 điểm`). Laptop vẫn có ưu tiên cao hơn, nhưng candidate Điện thoại tốt nhất phải xuất hiện. Nếu sau đó add Điện thoại, tỷ trọng có thể nghiêng về Điện thoại nhưng vẫn giữ ít nhất một Laptop khi cả hai category còn candidate public.
+
 Không query raw OrderItem cho mỗi request vì `Inventory.sold` đã được Order delivery cập nhật transactionally và phù hợp làm popularity signal. Không dùng `onHand` làm độ phổ biến.
 
 ### 33.6 Public cold-start và authenticated response
@@ -2975,6 +2984,18 @@ Shelf tái sử dụng `ProductCard`, vì vậy ảnh/detail link, stock, Wishli
 
 Product Detail chỉ record view sau khi có Product public và session mua sắm. Anonymous không bị fingerprint; ADMIN không phát shopping signal.
 
+VIEW là request best-effort bất đồng bộ, nên người dùng có thể bấm Back trước khi request hoàn tất. `recommendation-refresh.ts` giải quyết race này bằng một process-memory version/listener nhỏ ở Web:
+
+```text
+Product Detail tải xong
+  -> POST record VIEW
+  -> chỉ sau response thành công: notifyRecommendationInteractionRecorded()
+  -> Home đang mounted nhận signal hoặc Home remount đọc version mới
+  -> gọi lại GET /recommendations
+```
+
+Home cũng phát signal sau ADD_TO_CART và lần thêm WISHLIST thành công. Không phát trước API success, vì UI không được hiển thị cá nhân hóa dựa trên interaction chưa được database ghi. Bỏ Wishlist không xóa interaction lịch sử nên không phát một tín hiệu ranking ngược giả tạo. Store này chỉ invalidates UI data, không lưu interaction và không thay PostgreSQL làm source of truth.
+
 ### 33.8 Privacy, ownership và failure cases
 
 - Mọi personalized query/delete filter trực tiếp `userId` từ JWT; client không truyền target user ID.
@@ -2988,8 +3009,9 @@ Product Detail chỉ record view sau khi có Product public và session mua sắ
 
 Automated:
 
-- `recommendation-ranking.spec.ts`: intent order, 30-day half-life, repeat cap và affinity-vs-popularity.
-- `recommendations.integration.spec.ts`: aggregate count, preferred-category ranking, unseen-product priority, unavailable exclusion, cold-start và account-owned reset trên PostgreSQL thật.
+- `recommendation-ranking.spec.ts`: intent order, 30-day half-life, repeat cap, affinity-vs-popularity, multi-category 3/1 diversity và narrow-catalog fill.
+- `recommendations.integration.spec.ts`: aggregate count, preferred-category ranking, unseen-product priority, unavailable exclusion, cold-start, account-owned reset và Laptop/Điện thoại mixed shelf trên PostgreSQL thật.
+- `recommendation-refresh.spec.ts`: interaction version tăng đúng, subscriber được gọi sau persist signal và unsubscribe không còn nhận event.
 - Wishlist integration chứng minh add idempotent chỉ tạo một WISHLIST signal.
 - Phase 3 Checkout/Coupon integration tiếp tục chạy với transaction signal mới, giúp phát hiện regression Cart/Checkout.
 - Web lint/test/build compile Home shelf và Product Detail view tracker cùng toàn bộ route hiện tại.
@@ -2997,8 +3019,8 @@ Automated:
 Manual:
 
 1. Mở Home khi chưa login: shelf ghi sản phẩm nổi bật và thứ tự ưu tiên item có `inventory.sold` cao.
-2. Login CUSTOMER, mở Product A vài lần, wishlist Product A hoặc add Cart; quay lại/reload Home.
-3. Kiểm tra shelf ghi “Dựa trên sản phẩm…” và ưu tiên sản phẩm chưa xem cùng category/shop.
+2. Login CUSTOMER, add một Laptop vào Cart rồi mở một Điện thoại; ngay khi VIEW request thành công, quay lại Home.
+3. Kiểm tra shelf tự tải lại, có cả Laptop và Điện thoại, không cần add Điện thoại vào Cart và không có category nào chiếm cả bốn slot.
 4. Chuyển một candidate về DRAFT hoặc đưa available về 0; reload, item phải biến mất khỏi recommendation lẫn public Catalog.
 5. Click heart/cart/detail trong shelf; mỗi action phải hoạt động như card ở “Tất cả sản phẩm”, không click xuyên sang detail ngoài ý muốn.
 6. Click “Đặt lại gợi ý”; shelf trở về trending, Wishlist/Cart/Order vẫn nguyên.

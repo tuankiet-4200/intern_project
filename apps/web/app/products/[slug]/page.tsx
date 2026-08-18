@@ -4,6 +4,7 @@ import { AppShell } from '@/components/AppShell';
 import { apiRequest, formatVnd, getSession, subscribeSession } from '@/lib/api';
 import { setCartItemCount } from '@/lib/cart-indicator';
 import { openChatWidget } from '@/lib/chat-widget-store';
+import { notifyRecommendationInteractionRecorded } from '@/lib/recommendation-refresh';
 import {
   availableStock,
   discountPercentage,
@@ -128,9 +129,11 @@ export default function ProductDetailPage() {
       `/recommendations/interactions/views/${product.id}`,
       { method: 'POST' },
       true,
-    ).catch(() => {
-      trackedViews.current.delete(product.id);
-    });
+    )
+      .then(() => notifyRecommendationInteractionRecorded())
+      .catch(() => {
+        trackedViews.current.delete(product.id);
+      });
   }, [product, session]);
 
   const available = product ? availableStock(product.inventory.onHand, product.inventory.reserved) : 0;
@@ -151,6 +154,7 @@ export default function ProductDetailPage() {
         body: JSON.stringify({ productId: product.id, quantity }),
       }, true);
       setCartItemCount(nextCart.itemCount);
+      notifyRecommendationInteractionRecorded();
       setActionMessage({ type: 'success', text: `Đã thêm ${quantity} sản phẩm vào giỏ hàng.` });
     } catch (requestError) {
       setActionMessage({

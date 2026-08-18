@@ -4,6 +4,11 @@ import { AppShell } from '@/components/AppShell';
 import { apiRequest, formatVnd, getSession, subscribeSession } from '@/lib/api';
 import { setCartItemCount } from '@/lib/cart-indicator';
 import { productDetailPath, shopStorefrontPath } from '@/lib/product-detail';
+import {
+  getRecommendationInteractionVersion,
+  notifyRecommendationInteractionRecorded,
+  subscribeRecommendationInteractions,
+} from '@/lib/recommendation-refresh';
 import { recommendationExplanation, recommendationRequest } from '@/lib/recommendations';
 import { shouldResetSubmittedSearch } from '@/lib/search-filter';
 import { updateWishlistMembership, wishlistProductIdSet } from '@/lib/wishlist';
@@ -64,6 +69,11 @@ export default function Home() {
   const [recommendationsLoading, setRecommendationsLoading] = useState(true);
   const [recommendationsResetting, setRecommendationsResetting] = useState(false);
   const [recommendationMessage, setRecommendationMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const recommendationInteractionVersion = useSyncExternalStore(
+    subscribeRecommendationInteractions,
+    getRecommendationInteractionVersion,
+    () => 0,
+  );
   const wishlistProductIds = session && wishlistState.userId === session.user.id ? wishlistState.productIds : EMPTY_WISHLIST_IDS;
 
   const loadProducts = useCallback(async (query = '', categoryId: number | null = null) => {
@@ -127,7 +137,7 @@ export default function Home() {
   useEffect(() => {
     const timer = window.setTimeout(() => void loadRecommendations(), 0);
     return () => window.clearTimeout(timer);
-  }, [loadRecommendations]);
+  }, [loadRecommendations, recommendationInteractionVersion]);
 
   function submitSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -158,6 +168,7 @@ export default function Home() {
         body: JSON.stringify({ productId: product.id, quantity: 1 }),
       }, true);
       setCartItemCount(nextCart.itemCount);
+      notifyRecommendationInteractionRecorded();
       setActionMessage({ type: 'success', text: `Đã thêm “${product.name}” vào giỏ hàng.` });
     } catch (requestError) {
       const message = requestError instanceof Error ? requestError.message : '';
@@ -190,6 +201,7 @@ export default function Home() {
         userId: session.user.id,
         productIds: updateWishlistMembership(current.userId === session.user.id ? current.productIds : EMPTY_WISHLIST_IDS, product.id, !wished),
       }));
+      if (!wished) notifyRecommendationInteractionRecorded();
       setActionMessage({ type: 'success', text: wished ? `Đã bỏ “${product.name}” khỏi yêu thích.` : `Đã lưu “${product.name}” vào yêu thích.` });
     } catch (requestError) {
       setActionMessage({ type: 'error', text: requestError instanceof Error ? requestError.message : 'Không thể cập nhật danh sách yêu thích.' });

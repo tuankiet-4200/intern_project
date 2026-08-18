@@ -9,6 +9,7 @@ const INTERACTION_WEIGHT: Record<RecommendationInteractionType, number> = {
 
 const HALF_LIFE_DAYS = 30;
 const MILLISECONDS_PER_DAY = 86_400_000;
+const MAX_CATEGORY_SHARE = 0.75;
 
 export function interactionSignalScore(
   type: RecommendationInteractionType,
@@ -36,4 +37,53 @@ export function candidateRecommendationScore(input: {
     + input.shopAffinity * 1.5
     + Math.log1p(Math.max(0, input.sold)) * 0.5
     + freshness * 0.25;
+}
+
+export function diversifyRecommendationCandidates<T extends {
+  product: { id: string; categoryId: number };
+  score: number;
+}>(
+  rankedCandidates: T[],
+  categoryAffinities: ReadonlyMap<number, number>,
+  limit: number,
+) {
+  const boundedLimit = Math.max(0, Math.floor(limit));
+  if (boundedLimit === 0) return [];
+
+  const preferredCategories = [...categoryAffinities.entries()]
+    .filter(([categoryId]) => rankedCandidates.some((candidate) => candidate.product.categoryId === categoryId))
+    .sort((left, right) => right[1] - left[1] || left[0] - right[0]);
+
+  if (preferredCategories.length <= 1) return rankedCandidates.slice(0, boundedLimit);
+
+  const selected: T[] = [];
+  const selectedIds = new Set<string>();
+  const categoryCounts = new Map<number, number>();
+  const add = (candidate: T) => {
+    selected.push(candidate);
+    selectedIds.add(candidate.product.id);
+    categoryCounts.set(candidate.product.categoryId, (categoryCounts.get(candidate.product.categoryId) ?? 0) + 1);
+  };
+
+  for (const [categoryId] of preferredCategories) {
+    if (selected.length >= boundedLimit) break;
+    const bestInCategory = rankedCandidates.find((candidate) => candidate.product.categoryId === categoryId);
+    if (bestInCategory) add(bestInCategory);
+  }
+
+  const maxPerCategory = Math.max(1, Math.ceil(boundedLimit * MAX_CATEGORY_SHARE));
+  for (const candidate of rankedCandidates) {
+    if (selected.length >= boundedLimit) break;
+    if (selectedIds.has(candidate.product.id)) continue;
+    if ((categoryCounts.get(candidate.product.categoryId) ?? 0) >= maxPerCategory) continue;
+    add(candidate);
+  }
+
+  // A narrow catalog should still fill the shelf even when the diversity cap cannot be met.
+  for (const candidate of rankedCandidates) {
+    if (selected.length >= boundedLimit) break;
+    if (!selectedIds.has(candidate.product.id)) add(candidate);
+  }
+
+  return selected;
 }

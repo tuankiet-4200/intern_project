@@ -1,6 +1,6 @@
 # Testing Strategy
 
-Last updated: 2026-08-18
+Last updated: 2026-08-19
 
 ## Testing Pyramid
 
@@ -53,6 +53,8 @@ Recommendations:
 - Personalized ranking reads only the authenticated account's signals and reset deletes only that account's rows.
 - Cold-start falls back to trending, while both personalized and public results exclude inactive products, unapproved shops and unavailable inventory.
 - Cart, first-time Wishlist add and successful Checkout create their signals transactionally; idempotent retries do not duplicate PURCHASE or WISHLIST intent.
+- When at least two affinity categories have public candidates, a four-item shelf keeps both represented and caps one category at three items; a narrow catalog still fills every available slot.
+- Home invalidates and reloads personalized results only after a VIEW, ADD_TO_CART or new WISHLIST interaction is successfully persisted.
 
 Inventory:
 

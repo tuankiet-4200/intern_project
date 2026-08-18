@@ -275,6 +275,8 @@ Phase 11 interaction-based product recommendations:
 - Wired Product Detail view tracking and transactionally wired Wishlist, Cart and Checkout signals.
 - Added Home recommendation shelf, existing Cart/Wishlist actions and current-account personalization reset.
 - Added migration `20260818230000_phase9_product_recommendations`, ranking unit tests and PostgreSQL integration coverage.
+- Fixed the async VIEW/Home navigation race by publishing an in-memory frontend invalidation only after interaction persistence succeeds; active or restored Home state reloads recommendations immediately.
+- Added multi-category shelf diversification after score ranking: preferred categories receive representation and one category is capped at 75% when enough public candidates exist, while narrow catalogs still fill available slots.
 
 Phase 12 demo catalog and public shop storefront:
 
@@ -431,6 +433,9 @@ Verified:
 - Public storefront runtime smoke returned HTTP 200 for all four shops. Each shop returned five phones, five tablets and five laptops from the new snapshot; North Studio also retained its three pre-existing products.
 - Final Phase 12 regression passed: API 27 suites/65 tests and Web 17 suites/50 tests. API/Web lint and both production builds passed; Web generated 27 routes including dynamic `/shops/[slug]`.
 - No connected browser instance was available for visual storefront click-through; route compilation, unit/service coverage and live localhost API smoke are green. The credential DOCX passed OOXML archive/accessibility checks and a macOS Quick Look visual preview; canonical LibreOffice rendering was unavailable because `soffice` is not installed.
+- Recommendation refresh/diversity regression passed: ranking unit tests 6/6, Web refresh/recommendation tests 4/4 and PostgreSQL recommendation integration tests 4/4. The mixed-intent case keeps three high-intent-category items plus one newly viewed-category item in a four-product shelf.
+- Final recommendation-fix regression passed: API 27 suites/68 tests sequentially and Web 18 suites/51 tests; API/Web lint, API build and the 27-route Web webpack production build passed. The first parallel API run hit one transient PostgreSQL deadlock in an unrelated Checkout integration test; the complete sequential rerun passed without source changes to Checkout.
+- Recommendation visual click-through could not run because browser discovery returned no connected browser; post-persist refresh is covered by the frontend subscriber regression, mixed-category behavior by pure ranking and PostgreSQL integration tests, and the full Web production route compiled successfully.
 
 ## Current Risks / Gaps
 
@@ -457,6 +462,7 @@ Verified:
 - `GET /wishlist/product-ids` intentionally returns a compact full ID set for instant heart state; if individual wishlists grow to thousands of products, replace it with bounded membership checks or page-level authenticated projection.
 - Checkout selection is encoded in the URL for reload/share-safe navigation and capped at 99 UUIDs (about 4 KB worst case). Production proxies must permit that request-target size; a future very-large-cart design should use a short-lived server-side checkout session instead.
 - Recommendation ranking is an explainable in-request heuristic capped at 100 interaction aggregates and 80 candidates. Before large-catalog rollout, add offline retrieval/cache, exposure metrics, diversity/fairness guardrails and a reviewed privacy/retention policy rather than increasing query limits indefinitely.
+- The current diversity rule is a deterministic 75% category cap, not an experimentally tuned merchandising policy. Validate its effect with exposure/conversion metrics before changing weights or quota for production traffic.
 - Demo product prices are a dated test snapshot and are not synchronized with CellphoneS. Remote image hotlinks may expire and require source/licensing review; production should copy approved assets into owned object storage/CDN instead of depending on third-party URLs.
 
 ## Next Recommended Step

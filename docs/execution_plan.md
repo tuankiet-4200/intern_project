@@ -422,6 +422,8 @@ Done:
 - Enforced the same ACTIVE product, APPROVED shop and positive available-stock visibility rule as public Catalog.
 - Added account-owned personalization reset and cascade cleanup without storing search text, IP address, user agent or guest fingerprint.
 - Added the Home recommendation shelf with cold-start/personalized explanation, existing Cart/Wishlist actions and a reset control.
+- Added post-persist frontend invalidation so successful VIEW/Cart/Wishlist signals refresh a cached/mounted Home shelf without waiting for another stronger action.
+- Added deterministic category diversity: when multiple affinity categories have candidates, one category cannot occupy more than 75% of the shelf unless the catalog is too narrow.
 - Added migration `20260818230000_phase9_product_recommendations`, pure ranking tests and PostgreSQL integration coverage.
 
 Acceptance:
@@ -430,6 +432,7 @@ Acceptance:
 - Authenticated recommendations use only that account's interactions and never expose another user's signals.
 - Repeated view/add requests cannot create unbounded interaction rows or unbounded score influence.
 - Product/detail, Cart, Wishlist and Checkout remain successful only when their own domain transaction succeeds.
+- A newly viewed category becomes visible on the next Home shelf refresh while earlier stronger-intent categories remain represented.
 - Reset deletes only the current account's personalization data and falls back to trending products.
 
 ## Phase 12 - Demo Catalog & Public Shop Storefront
