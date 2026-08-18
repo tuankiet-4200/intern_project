@@ -38,6 +38,8 @@
 ## Cart
 
 - Cart luu product id va quantity, gia chi la preview.
+- Customer co the chon mot hoac nhieu CartItem hop le de checkout; CartItem khong chon phai duoc giu nguyen sau khi dat hang.
+- Danh sach CartItem checkout phai thuoc cart cua current user, co toi da 99 dong va khong duoc rong/trung.
 - Luc checkout phai doc lai product, price, shop status, inventory.
 - Neu product het hang/gia doi, checkout tra loi ro item nao khong hop le.
 
@@ -47,6 +49,7 @@
 - Shop order dai dien phan don hang cua tung shop.
 - Order item snapshot ten, gia, anh, shop, tax/shipping neu co.
 - Tao order va reserve stock phai trong transaction.
+- Quote, coupon, shipping, order snapshot va inventory reservation chi tinh tren cac CartItem duoc chon.
 - Don hang co idempotency key de tranh double checkout khi user refresh/retry.
 
 ## Payment

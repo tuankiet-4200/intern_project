@@ -63,7 +63,7 @@ export function canAccessPath(pathname: string, role?: AppRole) {
   if (pathname.startsWith('/admin')) return role === 'ADMIN';
   if (pathname === '/vendor/shop') return role === 'CUSTOMER' || role === 'VENDOR';
   if (pathname.startsWith('/vendor')) return role === 'VENDOR';
-  if (pathname === '/cart' || pathname === '/wishlist' || pathname.startsWith('/orders') || pathname === '/messages') return role === 'CUSTOMER' || role === 'VENDOR';
+  if (pathname === '/cart' || pathname === '/checkout' || pathname === '/wishlist' || pathname.startsWith('/orders') || pathname === '/messages') return role === 'CUSTOMER' || role === 'VENDOR';
   return true;
 }
 

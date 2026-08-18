@@ -245,6 +245,16 @@ Phase 8 customer Wishlist and catalog stock UX:
 - Added `/wishlist` with empty/error/loading states, pagination, unavailable-product retention, removal and cart-indicator synchronization.
 - Added migration `20260818090000_phase8_customer_wishlist`, PostgreSQL integration coverage and Web helper/navigation coverage.
 
+Phase 9 selective Cart and dedicated Checkout:
+
+- Added selected CartItem IDs to quote/commit with UUID/list validation, current-user ownership checks and backward-compatible all-cart fallback for old clients.
+- Scoped pricing, coupon, shop shipping, order snapshots, inventory reservations and CartItem deletion to the exact selected set.
+- Included sorted selection IDs in the idempotency fingerprint so one key cannot represent two different baskets.
+- Rebuilt `/cart` as a product-selection/quantity screen with a single Checkout action; moved address/map, payment, coupon and final order submission to `/checkout`.
+- Kept unselected items in Cart after successful commit and reconciled the header badge from the remaining cart.
+- Added canonical Product Detail links in Cart, Checkout and customer Orders; order responses expose current slug while historical name/price/image remain snapshots.
+- Added PostgreSQL selective-checkout assertions and Web selection/navigation helper coverage.
+
 Governance/context:
 
 - Added `.agents/senior-tech-lead.rules.md`.
@@ -369,6 +379,10 @@ Verified:
 - Phase 8 Web regression passed: 14 suites/40 tests; Web lint passed and webpack production build generated 25 routes including `/wishlist`.
 - Full HTTP E2E remained green: 3 suites/4 tests. Local runtime verified login, public product discovery, Wishlist add/list/ID/remove, current `available=48`, `isPurchasable=true`, and HTTP 200 for `/` plus `/wishlist`.
 - Phase 8 visual Browser click-through could not run because no connected browser instance was available after required setup/troubleshooting/retry; automated tests, production compilation and localhost HTTP/API smoke are green.
+- Phase 9 selective Checkout integration passed: 1 suite/2 tests proving foreign/stale selection rejection, selected-only pricing/order/reservation and preservation of the unselected CartItem.
+- Final API regression remained 23 suites/51 tests; Web regression is now 15 suites/43 tests; HTTP E2E remained 3 suites/4 tests. API/Web lint and both production builds passed; Web generated 26 routes including `/checkout`.
+- Local runtime smoke returned 200 for login, Cart API, Orders API, `/cart`, `/checkout?items=...` and `/orders`; selected quote returned one requested item and customer OrderItem response included its current product slug.
+- Phase 9 visual Browser click-through could not run because no connected browser instance was available after setup, troubleshooting lookup and retry; runtime HTTP, transaction coverage and production compilation are green.
 
 ## Current Risks / Gaps
 
@@ -392,10 +406,11 @@ Verified:
 - Catalog grounding limits the prompt to 60 most recently updated ACTIVE products and 20 recent messages. Large shops need retrieval/search rather than sending their full catalog.
 - Chat content currently has retention/storage but no moderation, attachment upload or end-to-end encryption policy; define retention/privacy/abuse controls before public launch.
 - `GET /wishlist/product-ids` intentionally returns a compact full ID set for instant heart state; if individual wishlists grow to thousands of products, replace it with bounded membership checks or page-level authenticated projection.
+- Checkout selection is encoded in the URL for reload/share-safe navigation and capped at 99 UUIDs (about 4 KB worst case). Production proxies must permit that request-target size; a future very-large-cart design should use a short-lived server-side checkout session instead.
 
 ## Next Recommended Step
 
-The agreed application baseline, including shop chat, catalog-grounded AI, Admin governance and persistent customer Wishlist, is complete. Remaining follow-up depends on external choices/access or scale requirements:
+The agreed application baseline, including shop chat, catalog-grounded AI, Admin governance, Wishlist and selective dedicated Checkout, is complete. Remaining follow-up depends on external choices/access or scale requirements:
 
 1. Select and integrate the bank-transfer provider adapter/reconciliation job.
 2. Configure `DEEPSEEK_API_KEY` in the API secret manager, enable AI per shop and verify answers against staging catalog data.

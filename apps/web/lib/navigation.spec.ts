@@ -31,6 +31,8 @@ describe('role-aware navigation', () => {
     expect(canAccessPath('/admin/shops', 'ADMIN')).toBe(true);
     expect(canAccessPath('/vendor/orders', 'VENDOR')).toBe(true);
     expect(canAccessPath('/messages', 'CUSTOMER')).toBe(true);
+    expect(canAccessPath('/checkout', 'CUSTOMER')).toBe(true);
+    expect(canAccessPath('/checkout', 'ADMIN')).toBe(false);
     expect(canAccessPath('/wishlist', 'CUSTOMER')).toBe(true);
     expect(canAccessPath('/wishlist', 'ADMIN')).toBe(false);
     expect(canAccessPath('/messages')).toBe(false);

@@ -7,7 +7,10 @@ import { OutboxService } from '../notifications/outbox.service';
 const ORDER_INCLUDE = {
   shopOrders: {
     orderBy: { createdAt: 'asc' as const },
-    include: { shop: { select: { id: true, name: true, slug: true } }, items: true },
+    include: {
+      shop: { select: { id: true, name: true, slug: true } },
+      items: { include: { product: { select: { slug: true } } } },
+    },
   },
   payments: {
     orderBy: { createdAt: 'asc' as const },

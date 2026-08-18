@@ -2,12 +2,15 @@
 
 import { AppShell } from '@/components/AppShell';
 import { apiRequest, formatVnd } from '@/lib/api';
+import { productDetailPath } from '@/lib/product-detail';
+import Link from 'next/link';
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 
 type OrderItem = {
   id: string;
   productId: string;
   productName: string;
+  product: { slug: string };
   quantity: number;
   lineTotal: string;
 };
@@ -150,7 +153,7 @@ export default function OrdersPage() {
                     const review = reviewByItem.get(item.id);
                     return (
                       <div key={item.id} className="mt-2 border-t border-[var(--line)] pt-2 first:border-t-0">
-                        <p className="flex justify-between text-sm"><span>{item.productName} × {item.quantity}</span><span>{formatVnd(item.lineTotal)}</span></p>
+                        <p className="flex justify-between gap-3 text-sm"><span><Link href={productDetailPath(item.product.slug)} className="font-medium hover:text-[var(--accent)] hover:underline">{item.productName}</Link> × {item.quantity}</span><span className="shrink-0">{formatVnd(item.lineTotal)}</span></p>
                         {review ? <p className="mt-1 text-xs text-amber-700">Reviewed {review.rating}/5{review.comment ? ` · ${review.comment}` : ''}</p> : null}
                         {shopOrder.status === 'DELIVERED' && !review ? (
                           <button className="mt-2 text-xs font-medium text-[var(--accent-strong)]" onClick={() => setReviewingItemId(item.id)}>Review this product</button>

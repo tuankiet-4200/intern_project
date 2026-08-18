@@ -56,6 +56,9 @@ Inventory:
 Cart/Checkout/Order:
 
 - Cart validates product availability.
+- Checkout selection rejects missing/foreign CartItem IDs and accepts at most 99 unique UUIDs.
+- Quote totals, coupon eligibility and shipping use only selected CartItems.
+- Partial checkout deletes only purchased CartItems and keeps unselected rows unchanged.
 - Checkout snapshots product name, image, and price.
 - Checkout creates parent order and shop orders in one transaction.
 - Checkout with same idempotency key does not duplicate orders.
@@ -141,6 +144,9 @@ Frontend:
 - Storefront Wishlist membership updates immutably, deduplicates product IDs and resets across account/session changes.
 - Customer/Vendor navigation exposes `/wishlist`; Admin navigation and route access do not.
 - Wishlist cards disable cart action for unavailable products and synchronize the global cart badge after a successful add.
+- Cart selection initially includes only valid items, remains immutable/preserved after refresh and produces a validated deterministic Checkout URL.
+- `/checkout` is protected for Customer/Vendor and receives selected item IDs; Admin/anonymous access is blocked by the route gate and backend guards.
+- Cart and Order product links use the shared slug encoder; Order API includes the current product slug without replacing historical name/price/image snapshots.
 
 Operations:
 

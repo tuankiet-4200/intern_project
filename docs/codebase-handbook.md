@@ -1108,13 +1108,18 @@ Backend response vẫn là nguồn đúng. Store này chỉ giải quyết phả
 
 Endpoint: `POST /checkout/quote`.
 
-Input optional: `couponCode`.
+Input:
+
+- `cartItemIds`: optional để tương thích client cũ; khi có phải là 1-99 UUID v4 unique và chỉ đại diện các dòng user đã chọn.
+- `couponCode`: optional.
 
 Quote không ghi database. Nó trả preview dựa trên dữ liệu hiện tại.
 
 ### 15.1 Load và revalidate cart
 
-`loadCartItems()` lấy cart item kèm product, shop, inventory. Mỗi item tính `lineTotal = price * quantity`.
+`loadCartItems()` lấy cart item kèm product, shop, inventory. Nếu DTO có `cartItemIds`, relation query filter ngay theo danh sách đó trong cart của current user. Service so số row tìm được với số ID request; thiếu một ID nghĩa là item không thuộc user, đã bị xóa hoặc selection stale và request bị reject. Không được im lặng checkout phần còn lại.
+
+Mỗi item được chọn tính `lineTotal = price * quantity`. Không có `cartItemIds` thì service dùng toàn cart để giữ backward compatibility cho client/API cũ.
 
 Mỗi item được kiểm tra:
 
@@ -1248,6 +1253,7 @@ Endpoint: `POST /checkout/commit`.
 
 Input:
 
+- `cartItemIds`: optional list dòng cart được chọn; Web hiện luôn gửi field này.
 - `idempotencyKey`: 16-100 ký tự.
 - `addressId`: UUID.
 - `paymentMethod`: COD hoặc BANK_TRANSFER.
@@ -1263,7 +1269,8 @@ Fingerprint là SHA-256 của normalized:
 {
   "addressId": "...",
   "paymentMethod": "COD",
-  "couponCode": "NORMALIZED-OR-NULL"
+  "couponCode": "NORMALIZED-OR-NULL",
+  "cartItemIds": ["SORTED-UUID-1", "SORTED-UUID-2"]
 }
 ```
 
@@ -1285,7 +1292,7 @@ Thứ tự hiện tại:
 
 1. Tìm existing order bằng composite idempotency key.
 2. Verify address thuộc user.
-3. Chạy lại toàn bộ pricing pipeline trong transaction.
+3. Chạy lại toàn bộ pricing pipeline chỉ cho selection trong transaction; mọi ID vẫn phải thuộc cart user.
 4. Tạo ParentOrder:
    - order number;
    - totals;
@@ -1298,7 +1305,7 @@ Thứ tự hiện tại:
 9. Nếu có coupon, conditional increment `usedCount`.
 10. Tạo CouponUsage.
 11. Tạo Payment `UNPAID`, amount bằng parent total.
-12. Xóa đúng các CartItem đã checkout theo danh sách item ID.
+12. Xóa đúng các CartItem đã checkout theo danh sách item ID; dòng không chọn vẫn ở cart.
 13. Query lại ParentOrder với shop orders, items, payments, coupon usage.
 14. Commit transaction.
 
@@ -1883,43 +1890,25 @@ Unit test `lib/product-detail.spec.ts` kiểm tra available không âm, quantity
 
 ### 22.6 `/cart`
 
-Load song song:
+- Chỉ load `/cart`; địa chỉ, coupon, quote và payment không còn nằm trên màn này.
+- `selectedIds` là Set riêng với dữ liệu Cart. Lần load đầu chọn mọi item `isValid=true`; item invalid hiển thị lỗi và checkbox bị khóa.
+- Select-all và từng checkbox cập nhật immutable Set. Sau PATCH quantity hoặc DELETE item, `reconcileCartSelection()` chỉ giữ ID còn tồn tại và hợp lệ, không tự chọn lại item user đã bỏ chọn.
+- Quantity +/- gọi PATCH, remove gọi DELETE; global cart badge vẫn phản ánh toàn bộ quantity, không phải số đã chọn.
+- Ảnh và tên product dùng `productDetailPath(product.slug)`; checkbox, quantity và delete là action riêng không lồng trong Link.
+- Aside chỉ hiển thị số dòng/số lượng đã chọn và nút “Thanh toán”. Nút tạo `/checkout?items=<comma-separated UUIDs>` bằng helper encode/dedupe/sort; không có selection thì bị khóa.
 
-- Cart.
-- User addresses.
-- Coupon hiện khả dụng của user.
+### 22.7 `/checkout`
 
-Nếu cart có item, gọi checkout quote.
+- Route gate chỉ cho CUSTOMER/VENDOR. Query `items` được parse/dedupe và bắt buộc là tối đa 99 UUID v4; malformed/missing selection hiển thị lỗi và link quay lại Cart.
+- Load song song Cart, addresses và coupon discovery. Frontend intersect selection với Cart hiện tại; thiếu item nào thì dừng thay vì âm thầm mua phần còn lại.
+- Gọi `/checkout/quote` với `cartItemIds`; phần tóm tắt chỉ render sản phẩm được chọn và tên link tới Product Detail.
+- Address dùng `SelectMenu`, ưu tiên default; `AddressForm` hỗ trợ thêm địa chỉ và map ngay tại Checkout.
+- Payment dùng styled select. Coupon click mở detail, còn Apply mới quote lại với exact selection; `appliedCoupon` tách khỏi input text.
+- Idempotency signature gồm sorted `cartItemIds`, address, payment và normalized coupon. Đổi selection tạo ý định checkout khác.
+- Commit gửi cùng selection. Thành công tải lại Cart để cập nhật badge còn lại rồi chuyển `/orders?created=<id>`.
+- Nếu đồng bộ badge sau commit lỗi, vẫn phải điều hướng vì order đã tồn tại; không được báo commit fail và sinh key mới gây duplicate.
 
-Quantity +/- gọi PATCH cart item. Remove gọi DELETE. Sau mutation, cart và quote được refresh.
-
-Coupon chỉ được dùng cho commit sau khi quote apply thành công; state `appliedCoupon` tách khỏi text đang gõ để tổng hiển thị không lệch payload checkout.
-
-Địa chỉ và dropdown:
-
-- Address/payment dùng `SelectMenu` thay native select để có label phụ, selected state và giao diện nhất quán.
-- Address đã lưu được chọn mặc định theo `isDefault`, sau đó fallback address đầu tiên.
-- “Thêm địa chỉ mới” mở `AddressForm` ngay trong checkout, không điều hướng khỏi cart. POST thành công prepend address mới, tự chọn nó và đóng form.
-- `AddressForm` là form độc lập; checkout card không bọc một form cha để tránh nested form HTML.
-
-Coupon discovery:
-
-1. Click coupon chỉ chọn và mở `CouponDetail`, chưa tự áp dụng.
-2. Detail hiển thị loại/mức giảm, shop hoặc global scope, minimum order, maximum discount, hiệu lực, hạn dùng, lượt campaign còn lại và lượt account còn lại.
-3. “Dùng mã” hoặc nút áp dụng cạnh input gọi `/checkout/quote`.
-4. Chỉ khi quote thành công mới cập nhật `appliedCoupon` và tổng tiền.
-5. Backend vẫn validate lại toàn bộ coupon trong commit; số lượt ở detail chỉ là snapshot UX.
-
-Checkout:
-
-1. Require address.
-2. Build signature address/payment/applied coupon.
-3. Reuse hoặc tạo `crypto.randomUUID()` idempotency key.
-4. POST `/checkout/commit`.
-5. Success -> `/orders?created=<id>`.
-6. Failure -> giữ key để retry cùng payload không duplicate.
-
-### 22.7 `/wishlist`
+### 22.8 `/wishlist`
 
 - Route chỉ cho CUSTOMER/VENDOR theo frontend gate; backend JWT/RBAC vẫn là security boundary.
 - Load `GET /wishlist?page=<page>&limit=20`, hiển thị tổng, pagination, loading/error/empty states.
@@ -1928,7 +1917,7 @@ Checkout:
 - Add-to-cart gọi `/cart/items` quantity 1; response `itemCount` đồng bộ global cart badge ngay.
 - Product name/image link tới public detail bằng helper chuẩn hóa slug; remove/cart là button riêng, không lồng interactive element trong Link.
 
-### 22.8 `/orders`
+### 22.9 `/orders`
 
 - Load song song customer ParentOrders và reviews của current user.
 - Render từng ShopOrder và OrderItem snapshot.
@@ -1936,14 +1925,15 @@ Checkout:
 - Cho cancel khi parent còn PLACED; backend vẫn là nguồn quyết định cuối cùng.
 - Với delivered item chưa review, hiện form rating/comment; item đã review hiện kết quả.
 - Silent poll mỗi 15 giây và hiển thị last-updated time.
+- OrderItem giữ snapshot name/price/image nhưng response include current `product.slug`; tên sản phẩm link qua `productDetailPath()`. Nếu product sau đó không còn public, link vẫn tới đúng route nhưng Product Detail có thể hiển thị trạng thái không còn bán.
 
-### 22.9 `/vendor/shop`
+### 22.10 `/vendor/shop`
 
 - Load shop của current user.
 - Nếu chưa có, hiện form onboarding.
 - Nếu approved, có thể đi quản lý product.
 
-### 22.10 `/vendor/products`
+### 22.11 `/vendor/products`
 
 - Load `/shops/me` và categories.
 - Chọn shop đầu tiên hiện tại.
@@ -1961,7 +1951,7 @@ Hiện form lưu URL ảnh, không upload binary/base64. Upload file trực ti�
 
 Integration test catalog kiểm tra create/update mọi merchandising field, ownership, compare-at validation và archive terminal. Web helper test kiểm tra URL trim/dedupe/protocol/reorder cùng attribute completeness/uniqueness/scalar restoration. Catalog card image link bắt buộc là block-level để `aspect-ratio` không collapse; đây là regression guard cần giữ khi đổi wrapper interactive.
 
-### 22.11 `/vendor/orders`
+### 22.12 `/vendor/orders`
 
 - Load shop hiện tại, sau đó load shop orders.
 - Map current status sang next status hợp lệ.
@@ -1969,7 +1959,7 @@ Integration test catalog kiểm tra create/update mọi merchandising field, own
 - Reload list sau transition.
 - Silent poll mỗi 15 giây để nhận order/status mới mà không flash loading state.
 
-### 22.12 `/admin/shops`
+### 22.13 `/admin/shops`
 
 - Load `/admin/shops` theo trang, từ khóa và status; không chỉ lấy pending queue.
 - `searchInput` giữ text đang gõ còn `search` giữ filter đã áp dụng. Xóa trắng input đang có filter sẽ đặt page về 1, gỡ `search`; effect tự tải lại toàn bộ shop theo các filter status còn lại.
@@ -1978,7 +1968,7 @@ Integration test catalog kiểm tra create/update mọi merchandising field, own
 - Approve/reject/suspend/restore đều đi qua confirmation dialog; reject/suspend buộc nhập lý do tối thiểu năm ký tự.
 - Sau mutation, reload cả list và detail đang mở để UI không giữ trạng thái cũ.
 
-### 22.13 `/admin/users`
+### 22.14 `/admin/users`
 
 - Search tên/email/phone; filter role và account status; paginate 20 row.
 - Xóa trắng search input đang được áp dụng sẽ đặt page về 1 và tự tải lại mọi user theo role/status còn lại, không cần submit thêm lần nữa.
@@ -1987,14 +1977,14 @@ Integration test catalog kiểm tra create/update mọi merchandising field, own
 - Ban dùng dialog bắt buộc lý do; mở khóa vẫn xác nhận và giải thích shop không tự khôi phục.
 - Frontend chỉ hướng dẫn workflow. Self-ban, last-admin, stale JWT, session revocation và shop suspension đều được backend enforce.
 
-### 22.14 `/admin/categories`
+### 22.15 `/admin/categories`
 
 - Load flat admin list có parent/count dependencies.
 - Create root/child.
 - Toggle active.
 - Backend reject deactivate nếu còn active child/product.
 
-### 22.15 `/admin/coupons`
+### 22.16 `/admin/coupons`
 
 - Load tối đa 100 campaign cùng approved shops.
 - Form dùng chung create/edit cho scope, shop, type, value, min/cap, total/per-user limit và schedule.
@@ -2003,7 +1993,7 @@ Integration test catalog kiểm tra create/update mọi merchandising field, own
 - Edit economic terms sau usage vẫn được UI gửi nhưng backend reject; backend là business source of truth.
 - Activate/deactivate reload server state và hiển thị actionable error.
 
-### 22.16 `/vendor/coupons`
+### 22.17 `/vendor/coupons`
 
 - Load song song `/shops/me` và `/vendor/coupons`; chỉ shop APPROVED xuất hiện trong form.
 - Form create/edit luôn gửi `scope=SHOP`; backend vẫn kiểm tra ownership và không tin shopId từ browser.
@@ -2012,7 +2002,7 @@ Integration test catalog kiểm tra create/update mọi merchandising field, own
 - Card cho edit và activate/deactivate, sau mutation reload server state.
 - Vendor chưa có approved shop nhận empty/actionable state thay vì form không dùng được.
 
-### 22.17 `/admin/refunds`
+### 22.18 `/admin/refunds`
 
 - Load `/payments` có order/customer/refund histories.
 - Chỉ payment `PAID` hoặc `PARTIALLY_REFUNDED` được chọn để refund.
@@ -2020,7 +2010,7 @@ Integration test catalog kiểm tra create/update mọi merchandising field, own
 - COD yêu cầu checkbox xác nhận offline refund; bank transfer giải thích rõ kết quả sẽ PENDING chờ callback.
 - Sau mutation reload payment/refund state. Amount/reason/provider reference/history được hiển thị để admin audit.
 
-### 22.18 `/notifications`
+### 22.19 `/notifications`
 
 - Load page notification của current session.
 - Toggle unread-only tạo query mới; mark one/all gọi endpoint scoped theo current user.
@@ -2085,8 +2075,8 @@ Mọi path dưới đây có prefix `/api`.
 | GET | `/wishlist/product-ids` | Customer/Vendor | Own saved product IDs for card state |
 | PUT | `/wishlist/items/:productId` | Customer/Vendor | Idempotently save public product |
 | DELETE | `/wishlist/items/:productId` | Customer/Vendor | Idempotently remove own saved product |
-| POST | `/checkout/quote` | Customer/Vendor | Reprice cart |
-| POST | `/checkout/commit` | Customer/Vendor | Atomic checkout |
+| POST | `/checkout/quote` | Customer/Vendor | Reprice exact owned CartItem selection |
+| POST | `/checkout/commit` | Customer/Vendor | Atomic selective checkout |
 | GET | `/admin/coupons` | Admin | Search/paginate campaigns |
 | POST | `/admin/coupons` | Admin | Create global/shop campaign |
 | PATCH | `/admin/coupons/:id` | Admin | Update mutable campaign policy |
@@ -2212,6 +2202,7 @@ Kết nối PostgreSQL thật:
 - Catalog ownership/archive/category cycle.
 - Inventory concurrent reserve.
 - Phase 3 checkout/order/payment.
+- Selective checkout ownership, selected-only pricing/snapshots/reservation/cleanup và idempotency fingerprint.
 - Payment signed webhook và partial/full/concurrent refund.
 - COD explicit offline partial/full refund và payment summary aggregation.
 - Coupon campaign rules, vendor ownership, discovery, immutable used terms, per-account enforcement và competing checkout.
@@ -2234,6 +2225,8 @@ Phase 3 integration test xác minh:
 - Invalid fulfillment/payment transitions.
 - Payment audit.
 - Hai concurrent checkout không oversell.
+- Partial checkout chỉ xóa item đã chọn, để item chưa chọn trong Cart và reject CartItem ID không thuộc selection hợp lệ.
+- Customer order response kèm current product slug để dựng detail link mà không thay order snapshots.
 
 Test integration phải cleanup dữ liệu theo đúng dependency order: order trước product, cart item trước product, rồi shop/category/user.
 

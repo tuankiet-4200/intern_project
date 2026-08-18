@@ -36,7 +36,7 @@ export class CheckoutService {
   ) {}
 
   async quote(userId: string, dto: CheckoutQuoteDto) {
-    const pricing = await this.priceCart(this.prisma, userId, dto.couponCode);
+    const pricing = await this.priceCart(this.prisma, userId, dto.couponCode, dto.cartItemIds);
     return this.presentQuote(pricing);
   }
 
@@ -61,7 +61,7 @@ export class CheckoutService {
             const address = await tx.userAddress.findFirst({ where: { id: dto.addressId, userId } });
             if (!address) throw new NotFoundException('Shipping address not found');
 
-            const pricing = await this.priceCart(tx, userId, dto.couponCode);
+            const pricing = await this.priceCart(tx, userId, dto.couponCode, dto.cartItemIds);
             const parentOrder = await tx.parentOrder.create({
               data: {
                 userId,
@@ -191,9 +191,14 @@ export class CheckoutService {
     throw new ConflictException('Checkout could not be completed; please retry');
   }
 
-  private async priceCart(client: DbClient, userId: string, couponCode?: string) {
-    const items = await this.loadCartItems(client, userId);
-    if (items.length === 0) throw new BadRequestException('Cart is empty');
+  private async priceCart(client: DbClient, userId: string, couponCode?: string, cartItemIds?: string[]) {
+    const requestedItemIds = cartItemIds ? [...new Set(cartItemIds)] : undefined;
+    if (requestedItemIds?.length === 0) throw new BadRequestException('Select at least one cart item');
+    const items = await this.loadCartItems(client, userId, requestedItemIds);
+    if (items.length === 0) throw new BadRequestException(requestedItemIds ? 'Selected cart items are unavailable' : 'Cart is empty');
+    if (requestedItemIds && items.length !== requestedItemIds.length) {
+      throw new BadRequestException('Some selected cart items are no longer in your cart');
+    }
 
     const invalidItems: Array<{ itemId: string; productId: string; errors: string[] }> = [];
     for (const item of items) {
@@ -232,11 +237,12 @@ export class CheckoutService {
     };
   }
 
-  private async loadCartItems(client: DbClient, userId: string) {
+  private async loadCartItems(client: DbClient, userId: string, cartItemIds?: string[]) {
     const cart = await client.cart.findUnique({
       where: { userId },
       include: {
         items: {
+          where: cartItemIds ? { id: { in: cartItemIds } } : undefined,
           orderBy: { createdAt: 'asc' },
           include: {
             product: {
@@ -372,6 +378,7 @@ export class CheckoutService {
         addressId: dto.addressId,
         paymentMethod: dto.paymentMethod,
         couponCode: dto.couponCode?.trim().toUpperCase() ?? null,
+        cartItemIds: dto.cartItemIds ? [...dto.cartItemIds].sort() : null,
       }))
       .digest('hex');
   }

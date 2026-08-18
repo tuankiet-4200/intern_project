@@ -1,7 +1,26 @@
-import { IsEnum, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
+import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  ArrayUnique,
+  IsArray,
+  IsEnum,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 import { PaymentMethod } from '@prisma/client';
 
 export class CheckoutQuoteDto {
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(99)
+  @ArrayUnique()
+  @IsUUID('4', { each: true })
+  cartItemIds?: string[];
+
   @IsOptional()
   @IsString()
   @MaxLength(50)

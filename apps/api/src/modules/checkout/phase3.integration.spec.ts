@@ -104,7 +104,7 @@ describe('Phase 3 commerce flow integration', () => {
       });
       categoryId = category.id;
 
-      const [productA, productB] = await Promise.all([
+      const [productA, productB, productC] = await Promise.all([
         prisma.product.create({
           data: {
             shopId: shopA.id,
@@ -128,8 +128,19 @@ describe('Phase 3 commerce flow integration', () => {
             inventory: { create: { onHand: 5 } },
           },
         }),
+        prisma.product.create({
+          data: {
+            shopId: shopA.id,
+            categoryId: category.id,
+            name: 'Phase 3 Product C',
+            slug: `phase3-product-c-${suffix}`,
+            price: 50000,
+            status: ProductStatus.ACTIVE,
+            inventory: { create: { onHand: 3 } },
+          },
+        }),
       ]);
-      productIds.push(productA.id, productB.id);
+      productIds.push(productA.id, productB.id, productC.id);
 
       await expect(cart.addItem(customer.id, { productId: productB.id, quantity: 6 })).rejects.toBeInstanceOf(
         BadRequestException,
@@ -138,6 +149,13 @@ describe('Phase 3 commerce flow integration', () => {
       const cartView = await cart.addItem(customer.id, { productId: productB.id, quantity: 1 });
       expect(cartView.itemCount).toBe(3);
       expect(cartView.subtotal.toString()).toBe('400000');
+      const cartWithUnselectedItem = await cart.addItem(customer.id, { productId: productC.id, quantity: 1 });
+      const selectedCartItemIds = cartWithUnselectedItem.items
+        .filter((item) => item.productId !== productC.id)
+        .map((item) => item.id);
+      await expect(checkout.quote(customer.id, { cartItemIds: [productA.id] })).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
 
       await prisma.coupon.create({
         data: {
@@ -150,7 +168,7 @@ describe('Phase 3 commerce flow integration', () => {
         },
       });
       const couponCode = `phase3-${suffix}`;
-      const quote = await checkout.quote(customer.id, { couponCode });
+      const quote = await checkout.quote(customer.id, { couponCode, cartItemIds: selectedCartItemIds });
       expect(quote.shops).toHaveLength(2);
       expect(quote.subtotal.toString()).toBe('400000');
       expect(quote.discount.toString()).toBe('40000');
@@ -161,6 +179,7 @@ describe('Phase 3 commerce flow integration', () => {
         addressId: address.id,
         paymentMethod: PaymentMethod.COD,
         couponCode,
+        cartItemIds: selectedCartItemIds,
         idempotencyKey: `phase3-checkout-${suffix}`,
       };
       const order = await checkout.commit(customer.id, request);
@@ -185,9 +204,10 @@ describe('Phase 3 commerce flow integration', () => {
       ).rejects.toBeInstanceOf(ConflictException);
 
       const storedCart = await cart.getCart(customer.id);
-      expect(storedCart.items).toHaveLength(0);
+      expect(storedCart.items).toHaveLength(1);
+      expect(storedCart.items[0].productId).toBe(productC.id);
       const inventories = await prisma.inventory.findMany({
-        where: { productId: { in: productIds } },
+        where: { productId: { in: [productA.id, productB.id] } },
         include: { ledger: { where: { referenceId: order.id } } },
         orderBy: { productId: 'asc' },
       });
@@ -207,6 +227,8 @@ describe('Phase 3 commerce flow integration', () => {
 
       const completed = await orders.getMine(customer.id, order.id);
       expect(completed.status).toBe('COMPLETED');
+      expect(completed.shopOrders.flatMap((shopOrder) => shopOrder.items).find((item) => item.productId === productA.id)?.product.slug)
+        .toBe(productA.slug);
       const finalInventoryA = await prisma.inventory.findUniqueOrThrow({ where: { productId: productA.id } });
       const finalInventoryB = await prisma.inventory.findUniqueOrThrow({ where: { productId: productB.id } });
       expect(finalInventoryA.reserved).toBe(0);

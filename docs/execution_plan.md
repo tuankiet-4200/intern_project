@@ -356,6 +356,29 @@ Acceptance:
 - Stock on each Home card is derived from `onHand - reserved` and never shown as a negative number.
 - Unavailable saved products remain visible but cannot be added to cart.
 
+## Phase 9 - Selective Cart & Dedicated Checkout
+
+Status: complete.
+
+Done:
+
+- Added validated optional `cartItemIds` to Checkout quote/commit for backward-compatible selective checkout.
+- Scoped pricing, coupon eligibility, per-shop shipping, order snapshots, reservations and cart cleanup to the exact owned selection.
+- Included normalized selected IDs in the checkout idempotency fingerprint.
+- Rebuilt `/cart` around valid item selection, select-all, quantity management and a single Checkout action.
+- Moved address/map, payment method, coupon details, quote and order submission to protected `/checkout`.
+- Linked product names/images in Cart and product names in customer Orders to public Product Detail.
+- Added PostgreSQL partial-cart coverage and Web selection/navigation helper coverage.
+
+Acceptance:
+
+- A user cannot quote or commit another account's CartItem ID.
+- A partial checkout creates an order for only selected items and leaves all unselected CartItems unchanged.
+- Coupon and shipping totals are calculated only from selected shops/items.
+- Idempotency treats a changed item selection as a different checkout request.
+- Cart contains no address/payment/coupon form; Checkout owns those steps.
+- Cart, Checkout and Orders product names navigate through the canonical product-detail path.
+
 ## Backlog
 
 Do not implement unless the user explicitly changes scope:
