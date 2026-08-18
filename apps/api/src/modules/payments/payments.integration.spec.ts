@@ -13,8 +13,95 @@ import { describe, expect, it } from '@jest/globals';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BankTransferWebhookDto } from './dto/payments.dto';
 import { PaymentsService } from './payments.service';
+import { SepayGatewayService } from './sepay-gateway.service';
 
 describe('Payment webhook and refund integration', () => {
+  it('settles a SePay payment once from an authenticated, captured ORDER_PAID IPN', async () => {
+    const prisma = new PrismaService();
+    const ipnSecret = 'sepay-ipn-integration-secret';
+    const config = new ConfigService({
+      SEPAY_ENV: 'sandbox',
+      SEPAY_MERCHANT_ID: 'integration-merchant',
+      SEPAY_SECRET_KEY: 'integration-secret',
+      SEPAY_IPN_SECRET: ipnSecret,
+      SEPAY_RETURN_URL: 'http://localhost:3000/payments/sepay/return',
+    });
+    const sepay = new SepayGatewayService(config);
+    const service = new PaymentsService(prisma, config, undefined, sepay);
+    const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const customer = await prisma.user.create({
+      data: { email: `sepay-customer-${suffix}@example.com`, passwordHash: 'test', fullName: 'SePay Customer' },
+    });
+    const order = await prisma.parentOrder.create({
+      data: {
+        userId: customer.id,
+        orderNumber: `SEPAY-${suffix}`,
+        subtotalAmount: 125000,
+        totalAmount: 125000,
+        shippingAddress: { recipient: 'SePay Customer' },
+        payments: { create: { method: PaymentMethod.SEPAY, provider: 'sepay', amount: 125000 } },
+      },
+      include: { payments: true },
+    });
+    const payment = order.payments[0];
+    const payload = {
+      timestamp: Math.floor(Date.now() / 1000),
+      notification_type: 'ORDER_PAID',
+      order: {
+        id: `sepay-order-${suffix}`,
+        order_status: 'CAPTURED',
+        order_currency: 'VND',
+        order_amount: '125000.00',
+        order_invoice_number: payment.id,
+      },
+      transaction: {
+        id: `sepay-transaction-${suffix}`,
+        transaction_id: `bank-reference-${suffix}`,
+        transaction_status: 'APPROVED',
+        transaction_amount: '125000',
+        transaction_currency: 'VND',
+      },
+      customer: { id: customer.id, customer_id: customer.id },
+    };
+    const rawBody = Buffer.from(JSON.stringify(payload));
+
+    try {
+      await expect(service.processSepayIpn('wrong', rawBody, payload)).rejects.toBeInstanceOf(UnauthorizedException);
+      const accepted = await service.processSepayIpn(ipnSecret, rawBody, payload);
+      expect(accepted).toEqual(expect.objectContaining({ duplicate: false, paymentStatus: PaymentStatus.PAID }));
+      const replay = await service.processSepayIpn(ipnSecret, rawBody, payload);
+      expect(replay.duplicate).toBe(true);
+      expect((await prisma.parentOrder.findUniqueOrThrow({ where: { id: order.id } })).paymentStatus)
+        .toBe(PaymentStatus.PAID);
+      expect(await prisma.paymentWebhookEvent.count({ where: { paymentId: payment.id, provider: 'sepay' } }))
+        .toBe(1);
+
+      const secondOrder = await prisma.parentOrder.create({
+        data: {
+          userId: customer.id,
+          orderNumber: `SEPAY-MISMATCH-${suffix}`,
+          subtotalAmount: 125000,
+          totalAmount: 125000,
+          shippingAddress: { recipient: 'SePay Customer' },
+          payments: { create: { method: PaymentMethod.SEPAY, provider: 'sepay', amount: 125000 } },
+        },
+        include: { payments: true },
+      });
+      const mismatched = {
+        ...payload,
+        order: { ...payload.order, order_invoice_number: secondOrder.payments[0].id },
+        transaction: { ...payload.transaction, id: `sepay-mismatch-${suffix}`, transaction_amount: '1' },
+      };
+      await expect(service.processSepayIpn(ipnSecret, Buffer.from(JSON.stringify(mismatched)), mismatched))
+        .rejects.toBeInstanceOf(BadRequestException);
+      await prisma.parentOrder.delete({ where: { id: secondOrder.id } });
+    } finally {
+      await prisma.parentOrder.deleteMany({ where: { userId: customer.id } });
+      await prisma.user.delete({ where: { id: customer.id } });
+      await prisma.$disconnect();
+    }
+  });
+
   it('verifies signatures, deduplicates events, and protects partial/full refunds under concurrency', async () => {
     const prisma = new PrismaService();
     const secret = 'phase5-integration-secret-at-least-32-characters';

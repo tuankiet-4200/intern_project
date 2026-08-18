@@ -22,8 +22,10 @@ import {
   BankTransferWebhookDto,
   CreateRefundDto,
   PaymentQueryDto,
+  SepayIpnDto,
   UpdatePaymentStatusDto,
 } from './dto/payments.dto';
+import { SepayGatewayService } from './sepay-gateway.service';
 
 const PAYMENT_TRANSITIONS: Record<PaymentStatus, PaymentStatus[]> = {
   UNPAID: [PaymentStatus.AUTHORIZED, PaymentStatus.FAILED],
@@ -46,7 +48,50 @@ export class PaymentsService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService = new ConfigService(),
     private readonly outbox?: OutboxService,
+    private readonly sepay?: SepayGatewayService,
   ) {}
+
+  async createSepayCheckout(userId: string, paymentId: string) {
+    const payment = await this.findOwnedSepayPayment(userId, paymentId);
+    if (payment.status !== PaymentStatus.UNPAID && payment.status !== PaymentStatus.AUTHORIZED) {
+      throw new BadRequestException(`Payment in ${payment.status} cannot start SePay checkout`);
+    }
+    const sepay = this.requireSepay();
+    return sepay.createPayment({
+      paymentId: payment.id,
+      parentOrderId: payment.parentOrder.id,
+      orderNumber: payment.parentOrder.orderNumber,
+      amount: payment.amount.toFixed(2),
+      customerId: userId,
+    });
+  }
+
+  async reconcileSepayPayment(userId: string, paymentId: string) {
+    const payment = await this.findOwnedSepayPayment(userId, paymentId);
+    if (payment.status === PaymentStatus.PAID) {
+      return { paymentId: payment.id, paymentStatus: payment.status, alreadySettled: true };
+    }
+    if (payment.status !== PaymentStatus.UNPAID && payment.status !== PaymentStatus.AUTHORIZED) {
+      throw new BadRequestException(`Payment in ${payment.status} cannot be reconciled`);
+    }
+
+    const payload = await this.requireSepay().retrieveOrder(payment.id);
+    const normalized = this.normalizeSepayOrder(payload, payment.id);
+    if (normalized.orderStatus !== 'CAPTURED' || normalized.transactionStatus !== 'APPROVED') {
+      throw new BadRequestException(
+        `SePay has not captured this payment yet (${normalized.orderStatus || 'UNKNOWN'})`,
+      );
+    }
+    if (normalized.currency !== 'VND') throw new BadRequestException('SePay currency must be VND');
+    const rawBody = Buffer.from(JSON.stringify(payload));
+    return this.processProviderWebhook(rawBody, {
+      eventId: `RECONCILE:${normalized.providerReference}`,
+      type: PaymentWebhookType.PAYMENT_SUCCEEDED,
+      paymentId: payment.id,
+      providerReference: normalized.providerReference,
+      amount: normalized.amount,
+    }, 'sepay', PaymentMethod.SEPAY);
+  }
 
   async listForAdmin(query: PaymentQueryDto) {
     const where: Prisma.PaymentWhereInput = { status: query.status, method: query.method };
@@ -259,12 +304,48 @@ export class PaymentsService {
     this.verifyWebhookSignature(signature, timestamp, rawBody);
     if (!rawBody) throw new UnauthorizedException('Webhook raw body is unavailable');
 
+    return this.processProviderWebhook(
+      rawBody,
+      dto,
+      this.webhookProvider(),
+      PaymentMethod.BANK_TRANSFER,
+    );
+  }
+
+  async processSepayIpn(
+    secret: string | undefined,
+    rawBody: Buffer | undefined,
+    dto: SepayIpnDto,
+  ) {
+    const sepay = this.requireSepay();
+    sepay.verifyIpnSecret(secret);
+    if (!rawBody) throw new UnauthorizedException('Webhook raw body is unavailable');
+    if (dto.notification_type !== 'ORDER_PAID') {
+      throw new BadRequestException('Unsupported SePay notification type');
+    }
+
+    const normalized = this.normalizeSepayIpn(dto);
+    return this.processProviderWebhook(rawBody, {
+      eventId: `ORDER_PAID:${normalized.eventId}`,
+      type: PaymentWebhookType.PAYMENT_SUCCEEDED,
+      paymentId: normalized.paymentId,
+      providerReference: normalized.providerReference,
+      amount: normalized.amount,
+    }, 'sepay', PaymentMethod.SEPAY);
+  }
+
+  private async processProviderWebhook(
+    rawBody: Buffer,
+    dto: BankTransferWebhookDto,
+    provider: string,
+    expectedMethod: PaymentMethod,
+  ) {
+
     const isRefundEvent = REFUND_WEBHOOK_TYPES.has(dto.type);
     if (isRefundEvent !== Boolean(dto.refundId)) {
       throw new BadRequestException('refundId is required only for refund webhook events');
     }
 
-    const provider = this.webhookProvider();
     const payloadHash = createHash('sha256').update(rawBody).digest('hex');
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
@@ -274,8 +355,8 @@ export class PaymentsService {
             include: { parentOrder: { select: { id: true, userId: true, orderNumber: true } } },
           });
           if (!payment) throw new NotFoundException('Payment not found');
-          if (payment.method !== PaymentMethod.BANK_TRANSFER) {
-            throw new BadRequestException('Webhook can settle bank transfer payments only');
+          if (payment.method !== expectedMethod) {
+            throw new BadRequestException(`Webhook cannot settle ${payment.method} payments`);
           }
 
           const refund = dto.refundId
@@ -560,6 +641,11 @@ export class PaymentsService {
   }
 
   private assertRefundChannelConfirmation(method: PaymentMethod, confirmation: boolean | undefined) {
+    if (method === PaymentMethod.SEPAY) {
+      throw new BadRequestException(
+        'Automatic SePay bank-transfer refunds are not supported; handle the refund with an audited offline process',
+      );
+    }
     const offlineRefund = method === PaymentMethod.COD;
     if (offlineRefund && confirmation !== true) {
       throw new BadRequestException('COD refund requires explicit confirmation that cash was returned offline');
@@ -568,6 +654,134 @@ export class PaymentsService {
       throw new BadRequestException('Offline confirmation is valid only for COD refunds');
     }
     return offlineRefund;
+  }
+
+  private requireSepay() {
+    if (!this.sepay) throw new ServiceUnavailableException('SePay payment service is unavailable');
+    return this.sepay;
+  }
+
+  private async findOwnedSepayPayment(userId: string, paymentId: string) {
+    const payment = await this.prisma.payment.findFirst({
+      where: { id: paymentId, parentOrder: { userId } },
+      include: { parentOrder: { select: { id: true, orderNumber: true, userId: true } } },
+    });
+    if (!payment) throw new NotFoundException('Payment not found');
+    if (payment.method !== PaymentMethod.SEPAY) {
+      throw new BadRequestException('Payment does not use SePay');
+    }
+    return payment;
+  }
+
+  private normalizeSepayIpn(dto: SepayIpnDto) {
+    const paymentId = this.requiredText(dto.order.order_invoice_number, 'SePay order invoice number');
+    const orderStatus = this.requiredText(dto.order.order_status, 'SePay order status').toUpperCase();
+    const transactionStatus = this.requiredText(
+      dto.transaction.transaction_status,
+      'SePay transaction status',
+    ).toUpperCase();
+    const currency = this.requiredText(
+      dto.transaction.transaction_currency ?? dto.order.order_currency,
+      'SePay currency',
+    ).toUpperCase();
+    if (orderStatus !== 'CAPTURED' || transactionStatus !== 'APPROVED') {
+      throw new BadRequestException('SePay IPN does not contain an approved captured payment');
+    }
+    if (currency !== 'VND') throw new BadRequestException('SePay currency must be VND');
+    const orderAmount = this.moneyText(dto.order.order_amount, 'SePay order amount');
+    const transactionAmount = this.moneyText(
+      dto.transaction.transaction_amount,
+      'SePay transaction amount',
+    );
+    if (!new Prisma.Decimal(orderAmount).equals(transactionAmount)) {
+      throw new BadRequestException('SePay order and transaction amounts do not match');
+    }
+
+    return {
+      paymentId,
+      eventId: this.requiredText(dto.transaction.id, 'SePay transaction ID'),
+      providerReference: this.requiredText(
+        dto.transaction.id,
+        'SePay provider reference',
+      ),
+      amount: transactionAmount,
+    };
+  }
+
+  private normalizeSepayOrder(payload: unknown, paymentId: string) {
+    const root = this.record(payload) ?? {};
+    const source = this.record(root.data) ?? this.record(root.order) ?? root;
+    const order = this.record(source.order) ?? source;
+    const transactions = Array.isArray(order.transactions)
+      ? order.transactions
+      : Array.isArray(source.transactions)
+        ? source.transactions
+        : [];
+    const transaction = transactions
+      .map((value) => this.record(value))
+      .find((value) => this.optionalText(value?.transaction_status)?.toUpperCase() === 'APPROVED')
+      ?? this.record(source.transaction)
+      ?? this.record(order.transaction)
+      ?? this.record(transactions[0])
+      ?? {};
+    const invoice = this.requiredText(
+      order.order_invoice_number ?? source.order_invoice_number ?? paymentId,
+      'SePay order invoice number',
+    );
+    if (invoice !== paymentId) throw new BadRequestException('SePay returned a different payment invoice');
+
+    return {
+      orderStatus: this.requiredText(
+        order.order_status ?? source.order_status,
+        'SePay order status',
+      ).toUpperCase(),
+      transactionStatus: this.requiredText(
+        transaction.transaction_status ?? order.transaction_status ?? source.transaction_status,
+        'SePay transaction status',
+      ).toUpperCase(),
+      currency: this.requiredText(
+        order.order_currency ?? transaction.transaction_currency ?? source.order_currency,
+        'SePay currency',
+      ).toUpperCase(),
+      amount: this.moneyText(
+        order.order_amount ?? transaction.transaction_amount ?? source.order_amount,
+        'SePay order amount',
+      ),
+      providerReference: this.requiredText(
+        transaction.id ?? order.id ?? source.id,
+        'SePay provider reference',
+      ),
+    };
+  }
+
+  private record(value: unknown): Record<string, unknown> | undefined {
+    return value !== null && typeof value === 'object' && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : undefined;
+  }
+
+  private optionalText(value: unknown) {
+    return typeof value === 'string' || typeof value === 'number' ? String(value).trim() : undefined;
+  }
+
+  private requiredText(value: unknown, field: string) {
+    const normalized = this.optionalText(value);
+    if (!normalized) throw new BadRequestException(`${field} is missing`);
+    return normalized;
+  }
+
+  private moneyText(value: unknown, field: string) {
+    const normalized = this.requiredText(value, field);
+    let amount: Prisma.Decimal;
+    try {
+      amount = new Prisma.Decimal(normalized);
+    } catch {
+      throw new BadRequestException(`${field} is invalid`);
+    }
+    if (!amount.isPositive() || amount.decimalPlaces() > 2) {
+      throw new BadRequestException(`${field} is invalid`);
+    }
+    return amount.toFixed(2);
   }
 
   private async withSerializableRetry<T>(

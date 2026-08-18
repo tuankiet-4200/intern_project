@@ -3,6 +3,7 @@
 import { AppShell } from '@/components/AppShell';
 import { apiRequest, formatVnd } from '@/lib/api';
 import { productDetailPath } from '@/lib/product-detail';
+import { SepayCheckoutPayload, submitSepayCheckout } from '@/lib/sepay';
 import Link from 'next/link';
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 
@@ -23,7 +24,7 @@ type Order = {
   createdAt: string;
   payments: Array<{
     id: string;
-    method: string;
+    method: 'COD' | 'BANK_TRANSFER' | 'SEPAY';
     status: string;
     amount: string;
     refunds: Array<{
@@ -55,6 +56,7 @@ export default function OrdersPage() {
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState('');
   const [submittingReview, setSubmittingReview] = useState(false);
+  const [payingPaymentId, setPayingPaymentId] = useState('');
 
   const reviewByItem = useMemo(
     () => new Map(reviews.map((review) => [review.orderItemId, review])),
@@ -95,6 +97,22 @@ export default function OrdersPage() {
       await load(true);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Unable to cancel order');
+    }
+  }
+
+  async function payWithSepay(paymentId: string) {
+    setPayingPaymentId(paymentId);
+    setError('');
+    try {
+      const checkout = await apiRequest<SepayCheckoutPayload>(
+        `/payments/sepay/${paymentId}/checkout`,
+        { method: 'POST' },
+        true,
+      );
+      submitSepayCheckout(checkout);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Không thể mở cổng thanh toán SePay.');
+      setPayingPaymentId('');
     }
   }
 
@@ -140,6 +158,14 @@ export default function OrdersPage() {
               <div className="text-right"><p className="font-semibold">{formatVnd(order.totalAmount)}</p><p className="text-xs text-[var(--muted)]">{order.status} · {order.paymentStatus}</p></div>
             </header>
             <div className="grid gap-3 p-4">
+              {order.payments.filter((payment) => payment.method === 'SEPAY' && payment.status === 'UNPAID').map((payment) => (
+                <div key={payment.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-950">
+                  <span>Đơn hàng đang chờ thanh toán điện tử qua SePay.</span>
+                  <button type="button" className="button-primary !min-h-9 !px-3 !py-1.5" disabled={payingPaymentId === payment.id} onClick={() => void payWithSepay(payment.id)}>
+                    {payingPaymentId === payment.id ? 'Đang mở SePay…' : 'Thanh toán ngay'}
+                  </button>
+                </div>
+              ))}
               {order.payments.flatMap((payment) => payment.refunds.map((refund) => (
                 <div key={refund.id} className="rounded border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
                   Refund {formatVnd(refund.amount)} · {refund.status}

@@ -4,6 +4,7 @@ import {
   IsBoolean,
   IsEnum,
   IsInt,
+  IsObject,
   IsOptional,
   IsString,
   IsUUID,
@@ -93,4 +94,22 @@ export class BankTransferWebhookDto {
   @IsString()
   @MaxLength(500)
   failureReason?: string;
+}
+
+export class SepayIpnDto {
+  @IsInt()
+  timestamp!: number;
+
+  @IsString()
+  @MaxLength(50)
+  notification_type!: string;
+
+  @IsObject()
+  order!: Record<string, unknown>;
+
+  @IsObject()
+  transaction!: Record<string, unknown>;
+
+  @IsObject()
+  customer!: Record<string, unknown>;
 }

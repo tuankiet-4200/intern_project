@@ -256,6 +256,17 @@ Phase 9 selective Cart and dedicated Checkout:
 - Added canonical Product Detail links in Cart, Checkout and customer Orders; order responses expose current slug while historical name/price/image remain snapshots.
 - Added PostgreSQL selective-checkout assertions and Web selection/navigation helper coverage.
 
+Phase 10 SePay electronic payment:
+
+- Studied the ProjectIII SePay hosted-checkout flow, then integrated the same provider without copying its browser-trusted direct order update.
+- Added `SEPAY` PaymentMethod, migration `20260818213000_add_sepay_payment_method` and official `sepay-pg-node` dependency.
+- Added signed one-time hosted checkout creation with Payment UUID invoice identity, VND validation and owner-scoped retry.
+- Added SePay `ORDER_PAID` IPN authentication, captured/approved/currency/amount checks, replay audit and exact state-machine settlement.
+- Added direct SePay order-detail reconciliation as a return-page fallback; browser callback parameters never settle a payment by themselves.
+- Added `/payments/sepay/return`, Checkout SePay selection, Orders retry action and strict hosted-form CSP/URL allowlisting.
+- Added targeted SDK/Web tests plus PostgreSQL IPN integration coverage for wrong secret, exact replay and amount mismatch.
+- Applied the tenth migration locally and verified API/Web compilation; automated SePay refunds remain explicitly rejected until a provider-supported refund workflow is selected.
+
 Governance/context:
 
 - Added `.agents/senior-tech-lead.rules.md`.
@@ -385,10 +396,16 @@ Verified:
 - Local runtime smoke returned 200 for login, Cart API, Orders API, `/cart`, `/checkout?items=...` and `/orders`; selected quote returned one requested item and customer OrderItem response included its current product slug.
 - Phase 9 visual Browser click-through could not run because no connected browser instance was available after setup, troubleshooting lookup and retry; runtime HTTP, transaction coverage and production compilation are green.
 - Chat IME regression passed the complete Web suite at 15 suites/44 tests, Web lint and the 26-route webpack production build. Browser discovery had no connected instance after troubleshooting/retry, so direct Vietnamese composition click-through remains covered by the composition-state/key-code helper regression and should be repeated when a browser is attached.
+- SePay migration `20260818213000_add_sepay_payment_method` applied successfully; Prisma Client regenerated and the API production build passed.
+- SePay gateway unit tests passed (2 tests), Web hosted-form/CSP tests passed (5 tests) and PostgreSQL payment integration passed (3 tests), including secret rejection, idempotent IPN replay and exact amount enforcement.
+- Web webpack production build generated 27 routes including `/payments/sepay/return`; default Turbopack remained blocked by the execution environment's PostCSS process-port restriction.
+- Final SePay regression passed: API 24 suites/54 tests, Web 16 suites/46 tests and HTTP E2E 3 suites/5 tests; API/Web lint and API build passed, and production dependency audit reported zero vulnerabilities.
+- Local runtime smoke returned HTTP 200 with the expected cancelled state for `/payments/sepay/return`; an unsigned/unconfigured IPN failed closed with HTTP 503. Browser discovery had no connected instance after the required retry, so route compilation, HTTP smoke and automated tests cover this session's UI verification.
 
 ## Current Risks / Gaps
 
-- Bank transfer has a signed provider-neutral webhook, but a provider-specific payload adapter/API reconciliation job is still pending.
+- SePay payment initiation/IPN/reconciliation is implemented, but real sandbox/production merchant certification requires external credentials and a public HTTPS IPN endpoint.
+- Automated refund for SePay bank-transfer payments is intentionally rejected because the selected SePay flow does not expose the same provider refund completion contract; define an audited outbound-transfer/refund policy before enabling it.
 - Admin audit rows are retained indefinitely and deliberately restrict deletion of their actor account; define retention/anonymization and legal-support policy before adding permanent user deletion.
 - Redis is now a critical API dependency when `RATE_LIMIT_FAILURE_MODE=closed`; production needs managed Redis high availability, capacity monitoring and an intentional outage policy.
 - Repository CD/drill automation is implemented, but real staging execution still needs the chosen hosting/database, GitHub Environment URL/secrets and rollout webhook.
@@ -414,7 +431,8 @@ Verified:
 
 The agreed application baseline, including shop chat, catalog-grounded AI, Admin governance, Wishlist and selective dedicated Checkout, is complete. Remaining follow-up depends on external choices/access or scale requirements:
 
-1. Select and integrate the bank-transfer provider adapter/reconciliation job.
-2. Configure `DEEPSEEK_API_KEY` in the API secret manager, enable AI per shop and verify answers against staging catalog data.
-3. Add Redis Socket.IO fan-out and a durable AI job worker before multi-replica production rollout.
-4. Configure staging environment secrets/URLs and execute the supplied staging/backup/restore/load/rollback workflows on real infrastructure.
+1. Configure a SePay sandbox merchant, `SEPAY_*` secrets, public HTTPS `/api/payments/webhooks/sepay` IPN URL and run a real payment certification.
+2. Define the operational/provider contract for SePay refunds before implementing automated outbound money movement.
+3. Configure `DEEPSEEK_API_KEY` in the API secret manager, enable AI per shop and verify answers against staging catalog data.
+4. Add Redis Socket.IO fan-out and a durable AI job worker before multi-replica production rollout.
+5. Configure staging environment secrets/URLs and execute the supplied staging/backup/restore/load/rollback workflows on real infrastructure.

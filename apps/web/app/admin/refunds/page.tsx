@@ -15,7 +15,7 @@ type Refund = {
 };
 type Payment = {
   id: string;
-  method: 'COD' | 'BANK_TRANSFER';
+  method: 'COD' | 'BANK_TRANSFER' | 'SEPAY';
   status: string;
   amount: string;
   createdAt: string;
@@ -93,13 +93,14 @@ export default function AdminRefundsPage() {
         <label className="grid gap-1 text-sm md:col-span-2">Payment
           <select className="h-10 rounded border border-[var(--line)] px-3" value={paymentId} onChange={(event) => { setPaymentId(event.target.value); setConfirmOffline(false); }} required>
             <option value="">Select a paid/refundable payment</option>
-            {payments.filter((payment) => ['PAID', 'PARTIALLY_REFUNDED'].includes(payment.status)).map((payment) => (
+            {payments.filter((payment) => payment.method !== 'SEPAY' && ['PAID', 'PARTIALLY_REFUNDED'].includes(payment.status)).map((payment) => (
               <option key={payment.id} value={payment.id}>
                 {payment.parentOrder.orderNumber} · {payment.parentOrder.user.email} · {payment.method} · {formatVnd(payment.amount)} · {payment.status}
               </option>
             ))}
           </select>
         </label>
+        <p className="text-xs text-[var(--muted)] md:col-span-2">Hoàn tiền tự động cho SePay chưa được hỗ trợ; giao dịch SePay vẫn hiển thị bên dưới để đối soát nhưng không xuất hiện trong danh sách tạo refund.</p>
         <input className="h-10 rounded border border-[var(--line)] px-3" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="Refund amount" required />
         <input className="h-10 rounded border border-[var(--line)] px-3" value={reason} onChange={(event) => setReason(event.target.value)} maxLength={500} placeholder="Reason / support ticket" />
         {selected?.method === 'COD' ? (

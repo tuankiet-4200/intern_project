@@ -8,7 +8,7 @@ import {
   Req,
 } from '@nestjs/common';
 import { Request } from 'express';
-import { BankTransferWebhookDto } from './dto/payments.dto';
+import { BankTransferWebhookDto, SepayIpnDto } from './dto/payments.dto';
 import { PaymentsService } from './payments.service';
 
 @Controller('payments/webhooks')
@@ -24,5 +24,15 @@ export class PaymentWebhookController {
     @Body() dto: BankTransferWebhookDto,
   ) {
     return this.payments.processBankTransferWebhook(signature, timestamp, request.rawBody, dto);
+  }
+
+  @Post('sepay')
+  @HttpCode(200)
+  handleSepay(
+    @Req() request: RawBodyRequest<Request>,
+    @Headers('x-secret-key') secret: string | undefined,
+    @Body() dto: SepayIpnDto,
+  ) {
+    return this.payments.processSepayIpn(secret, request.rawBody, dto);
   }
 }

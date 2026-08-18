@@ -56,9 +56,13 @@
 
 - Payment status doc lap voi fulfillment status.
 - COD: payment pending cho toi khi delivered/collected.
-- Bank transfer/SePay: chi mark paid khi webhook/confirm hop le va amount khop.
+- Bank transfer/SePay: chi mark paid khi webhook/doi soat server-to-server hop le, invoice map dung Payment UUID, currency VND va amount khop chinh xac.
+- Browser success/error/cancel URL cua SePay chi la navigation hint; query string tu browser khong co quyen thay doi Payment.
+- SePay IPN phai dung `X-Secret-Key`, `ORDER_PAID`, order `CAPTURED`, transaction `APPROVED`; event va provider reference phai idempotent.
+- Chi owner cua ParentOrder duoc tao lai hosted checkout hoac yeu cau doi soat SePay cho Payment cua minh.
 - Refund la transaction rieng, khong sua nguoc payment record cu.
 - Bank-transfer refund cho callback provider hop le; COD refund chi thanh cong ngay khi admin xac nhan da hoan tien offline.
+- SePay bank-transfer refund tu dong chua co trong provider adapter hien tai; API phai reject thay vi tao refund khong co completion path.
 - Tong Refund `SUCCEEDED` khong duoc vuot Payment amount; moi transition co append-only history.
 
 ## Status Transitions

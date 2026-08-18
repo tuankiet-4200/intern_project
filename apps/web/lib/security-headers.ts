@@ -23,7 +23,7 @@ export function buildSecurityHeaders(options: SecurityHeaderOptions) {
     "object-src 'none'",
     "frame-src 'none'",
     "base-uri 'self'",
-    "form-action 'self'",
+    "form-action 'self' https://pay-sandbox.sepay.vn https://pay.sepay.vn",
     "frame-ancestors 'none'",
   ];
 

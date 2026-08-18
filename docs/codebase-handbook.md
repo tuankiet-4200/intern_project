@@ -68,6 +68,7 @@ Không bắt đầu sửa service trước khi hiểu:
 - Vendor fulfillment.
 - Payment record, payment state transition và audit history.
 - Signed bank-transfer webhook, replay protection, bank-transfer refund transaction và explicit offline COD refund.
+- SePay hosted checkout, authenticated IPN settlement, owner-scoped API reconciliation và customer payment retry.
 - Admin refund operations UI và customer refund visibility trong order detail.
 - Persisted notification inbox qua transactional outbox, idempotent worker và read/unread state.
 - Review sau khi giao hàng, public review aggregate và customer review UI.
@@ -79,7 +80,7 @@ Không bắt đầu sửa service trước khi hiểu:
 
 Chưa hoàn thiện hoặc mới là placeholder:
 
-- Signed webhook hiện dùng contract provider-neutral; adapter map payload riêng của SePay/VNPay/MoMo và reconciliation job vẫn chưa có.
+- SePay purchase adapter đã có; automated SePay bank-transfer refund và real merchant sandbox/production certification vẫn chưa có.
 - Redis đang được dùng cho distributed rate limiting; RabbitMQ chưa publish/consume message.
 - Rate limiter đã chia sẻ quota qua Redis; fixed-window vẫn có thể burst ở biên window và cần managed Redis HA khi production fail-closed.
 - CSP static/Turbopack vẫn cần `unsafe-inline`; strict nonce/SRI policy còn phụ thuộc hỗ trợ ổn định từ Next.js hoặc quyết định đổi rendering/bundler.
@@ -196,6 +197,12 @@ Redis hiện là critical request-protection dependency khi cấu hình fail-clo
 | `TRUST_PROXY_HOPS` | API | Số reverse proxy đáng tin trước API | `0` |
 | `BANK_TRANSFER_PROVIDER` | API | Stable provider namespace dùng cho unique reference/event | `bank-transfer` |
 | `BANK_TRANSFER_WEBHOOK_SECRET` | API | HMAC-SHA256 secret xác thực raw webhook body | Bắt buộc để bật webhook |
+| `SEPAY_ENV` | API | Chọn API/hosted gateway | `sandbox`; production đặt `production` |
+| `SEPAY_MERCHANT_ID` | API | Merchant ID dùng SDK ký form/gọi API | Secret manager |
+| `SEPAY_SECRET_KEY` | API | Merchant secret dùng SDK ký form/gọi API | Secret manager, không gửi browser |
+| `SEPAY_IPN_SECRET` | API | So sánh constant-time với `X-Secret-Key` của IPN | Secret được cấu hình tại merchant portal |
+| `SEPAY_PAYMENT_METHOD` | API | Hosted method được phép | `BANK_TRANSFER` hoặc `NAPAS_BANK_TRANSFER` |
+| `SEPAY_RETURN_URL` | API | Web callback base URL | Absolute URL; production bắt buộc HTTPS |
 | `PAYMENT_WEBHOOK_TOLERANCE_SECONDS` | API | Cửa sổ chống replay theo timestamp | `300` giây, tối thiểu `30` |
 | `NEXT_PUBLIC_API_URL` | Web | Base URL browser gọi API | `http://localhost:3005/api` |
 
@@ -1256,7 +1263,7 @@ Input:
 - `cartItemIds`: optional list dòng cart được chọn; Web hiện luôn gửi field này.
 - `idempotencyKey`: 16-100 ký tự.
 - `addressId`: UUID.
-- `paymentMethod`: COD hoặc BANK_TRANSFER.
+- `paymentMethod`: `COD`, `BANK_TRANSFER` hoặc `SEPAY`.
 - `couponCode`: optional.
 
 Toàn bộ commit chạy trong PostgreSQL `Serializable` transaction và retry tối đa 3 lần cho Prisma `P2002` hoặc `P2034`.
@@ -1479,7 +1486,7 @@ Một checkout có shop A cancel và shop B delivered sẽ `COMPLETED`, không p
 Checkout tạo một Payment:
 
 - `parentOrderId`.
-- `method`: COD hoặc BANK_TRANSFER.
+- `method`: `COD`, provider-neutral `BANK_TRANSFER`, hoặc provider cụ thể `SEPAY`.
 - `status`: UNPAID.
 - `amount`: ParentOrder total.
 
@@ -1556,7 +1563,89 @@ Không có cửa sổ quan sát được ở trạng thái AUTHORIZED vì toàn 
 
 Webhook không dùng JWT vì provider không có user session. HMAC, timestamp window, unique event ID, unique provider reference và amount matching cùng tạo lớp xác thực/replay/idempotency.
 
-### 19.4 Tạo refund transaction
+### 19.4 SePay hosted checkout, IPN và reconciliation
+
+SePay là provider cụ thể đầu tiên được nối vào payment core. ProjectIII được dùng để tìm hiểu cách SDK tạo hosted form, nhưng intern_project không sao chép nhánh `return URL -> update ParentOrder PAID` vì browser redirect không phải bằng chứng tài chính đáng tin cậy.
+
+#### 19.4.1 Cấu hình và SDK adapter
+
+`SepayGatewayService` là boundary duy nhất import `sepay-pg-node`. Service đọc:
+
+- `SEPAY_ENV`: `sandbox|production`;
+- `SEPAY_MERCHANT_ID`, `SEPAY_SECRET_KEY`: Basic API/field-signing credential, chỉ backend biết;
+- `SEPAY_IPN_SECRET`: secret riêng so sánh với header `X-Secret-Key`;
+- `SEPAY_PAYMENT_METHOD`: `BANK_TRANSFER|NAPAS_BANK_TRANSFER`;
+- `SEPAY_RETURN_URL`: route Web tuyệt đối; production bắt buộc HTTPS.
+
+`configuration()` chỉ trả `{ provider, configured }`, tuyệt đối không trả credential. `assertConfigured()` được Checkout gọi trước khi mở Serializable transaction. Nhờ vậy user chọn SePay khi server thiếu credential sẽ nhận `503` trước khi order được tạo/cart bị xóa.
+
+`createPayment()` nhận Payment/ParentOrder đã lưu và gọi `initOneTimePaymentFields()`:
+
+```text
+order_invoice_number = Payment.id (UUID)
+order_amount         = exact positive integer VND
+customer_id          = current user ID
+success/error/cancel = SEPAY_RETURN_URL + status/payment_id/order_id
+custom_data          = payment_id + parent_order_id (diagnostic only)
+```
+
+Payment UUID được dùng thay vì tên/order number vì unique, khó đoán và map thẳng tới financial aggregate. Amount phải là integer VND; service reject decimal/floating amount thay vì round im lặng. SDK tạo signature và URL hosted form; browser không bao giờ nhận merchant secret.
+
+Web chỉ POST các signed field sang đúng một trong hai allowlist URL:
+
+```text
+https://pay-sandbox.sepay.vn/v1/checkout/init
+https://pay.sepay.vn/v1/checkout/init
+```
+
+`lib/sepay.ts` kiểm tra origin + exact path trước khi tạo hidden form. CSP `form-action` cũng chỉ cho hai origin đó, nên payload API bị sửa thành URL lạ không thể biến thành open form redirect.
+
+#### 19.4.2 Checkout và retry phía customer
+
+1. `/checkout` load `GET /payments/sepay/configuration`; chỉ hiện lựa chọn SePay khi configured.
+2. `POST /checkout/commit` vẫn tạo ParentOrder/ShopOrder/Payment `UNPAID` theo transaction chuẩn. Payment dùng method `SEPAY`, provider namespace `sepay`.
+3. Response có Payment ID. Web gọi owner-scoped `POST /payments/sepay/:paymentId/checkout`.
+4. API load Payment qua quan hệ `parentOrder.userId=currentUser`; method phải là `SEPAY`, status phải `UNPAID|AUTHORIZED`.
+5. API trả signed form; Web validate destination rồi submit sang hosted checkout.
+6. Nếu bước 3-5 lỗi sau khi order đã commit, Web không tạo order mới. User được đưa tới `/orders`, nơi Payment `SEPAY+UNPAID` có nút **Thanh toán ngay** để tạo lại signed form.
+
+Checkout idempotency vẫn bảo vệ retry commit. Signed form có thể tạo lại vì invoice luôn là cùng Payment UUID; đây là retry cùng payment intent, không phải một order/payment mới.
+
+#### 19.4.3 IPN là settlement path chính
+
+Endpoint public: `POST /payments/webhooks/sepay`.
+
+Controller nhận raw body, header `X-Secret-Key` và validated top-level DTO gồm `timestamp`, `notification_type`, `order`, `transaction`, `customer`. Nested provider data được parse thủ công để không bind trực tiếp vào Prisma.
+
+`processSepayIpn()` fail closed theo thứ tự:
+
+1. SePay adapter/config phải tồn tại và IPN secret được so sánh constant-time.
+2. Raw body phải có để hash/audit.
+3. Chỉ nhận `notification_type=ORDER_PAID`.
+4. `order.order_status=CAPTURED`.
+5. `transaction.transaction_status=APPROVED`.
+6. Currency phải `VND`.
+7. `order_invoice_number` trở thành internal Payment ID; transaction amount được parse bằng `Prisma.Decimal`.
+8. Payload được normalize thành provider-neutral `PAYMENT_SUCCEEDED` rồi chuyển vào cùng `processProviderWebhook()` mà bank adapter dùng.
+
+Trong Serializable transaction, method phải đúng `SEPAY`, amount phải bằng Payment amount, `(provider,eventId)` và `(provider,providerRef)` giữ uniqueness, Payment đi logic `UNPAID -> AUTHORIZED -> PAID`, append hai history rows, ParentOrder summary cập nhật và notification được enqueue cùng commit. Raw financial payload không được lưu; chỉ SHA-256 hash dùng để phát hiện same-event/different-body replay.
+
+SePay retry đúng event/body trả `duplicate:true` và HTTP 200. Cùng event ID nhưng payload khác trả conflict; cùng provider transaction không thể settle hai Payment.
+
+#### 19.4.4 Return page chỉ đối soát server-to-server
+
+Hosted gateway redirect user tới `/payments/sepay/return?status=...&payment_id=...`. Query string chỉ quyết định thông báo UX:
+
+- `cancel|error`: không đổi Payment; user về Orders để thử lại.
+- `success`: Web gọi owner-scoped `POST /payments/sepay/:paymentId/reconcile`.
+
+Reconcile API dùng server credential gọi `client.order.retrieve(paymentId)`, rồi yêu cầu invoice đúng, order `CAPTURED`, có transaction `APPROVED`, currency VND và amount khớp. Kết quả tiếp tục đi qua `processProviderWebhook()` với một audit event `RECONCILE:<transaction-id>`; không có câu lệnh update Payment/ParentOrder riêng trong controller/return page. Nếu IPN đến trước, endpoint trả already-settled. Nếu reconcile đến trước, IPN sau đó vẫn idempotent vì provider reference thống nhất.
+
+#### 19.4.5 Refund boundary
+
+Adapter hiện chỉ bật SePay bank/NAPAS purchase. Tài liệu/provider flow được chọn không có callback hoàn tiền tương đương financial refund state machine hiện tại. Vì vậy `createRefund()` reject `PaymentMethod.SEPAY` thay vì tạo Refund `PENDING` không bao giờ hoàn tất. Production cần một quyết định riêng: provider refund API có signed completion, hoặc quy trình outbound bank transfer/offline confirmation có audit; không tái sử dụng cờ COD một cách mơ hồ.
+
+### 19.5 Tạo refund transaction
 
 Endpoint admin: `POST /payments/:paymentId/refunds`.
 
@@ -1590,7 +1679,7 @@ Serializable transaction:
 
 Hai request refund cạnh tranh dùng Serializable isolation + compare-and-swap + retry. Chỉ một request claim được Payment; request còn lại reload state và bị reject. Unique idempotency vẫn bảo đảm concurrent retry cùng request không tạo hai Refund.
 
-### 19.5 Provider hoàn tất refund
+### 19.6 Provider hoàn tất refund
 
 Provider callback dùng `REFUND_SUCCEEDED` hoặc `REFUND_FAILED` và phải chứa đúng `paymentId`, `refundId`, `amount`.
 
@@ -1610,7 +1699,7 @@ Mọi nhánh đều append RefundStatusHistory + PaymentStatusHistory; không re
 
 Endpoint `GET /payments/:paymentId/refunds` cho ADMIN đọc refund mới nhất trước cùng toàn bộ history.
 
-`GET /payments` cho ADMIN hỗ trợ pagination và filter status/method, trả order/customer/refunds/history cho màn operations. Customer không được gọi endpoint admin; thay vào đó own-order include payment/refund cần thiết để `/orders` hiển thị trạng thái hoàn tiền mà không lộ order người khác. Provider-specific request-out adapter vẫn là deferred work.
+`GET /payments` cho ADMIN hỗ trợ pagination và filter status/method, trả order/customer/refunds/history cho màn operations. Customer không được gọi endpoint admin; thay vào đó own-order include payment/refund cần thiết để `/orders` hiển thị trạng thái hoàn tiền mà không lộ order người khác. SePay purchase/reconciliation adapter đã có; provider-specific automated refund vẫn là deferred work.
 
 ---
 
@@ -2096,6 +2185,10 @@ Mọi path dưới đây có prefix `/api`.
 | POST | `/payments/:id/refunds` | Admin | Idempotent partial/full refund request |
 | GET | `/payments/:id/refunds` | Admin | Refunds + append-only histories |
 | POST | `/payments/webhooks/bank-transfer` | Signed provider | Payment/refund settlement callback |
+| GET | `/payments/sepay/configuration` | Customer/Vendor | Availability only; never returns credentials |
+| POST | `/payments/sepay/:id/checkout` | Payment owner | Recreate signed SePay hosted form |
+| POST | `/payments/sepay/:id/reconcile` | Payment owner | Server-side SePay status reconciliation |
+| POST | `/payments/webhooks/sepay` | SePay IPN | Authenticated captured-payment settlement |
 | GET | `/notifications` | Authenticated | Own inbox page/unread filter |
 | GET | `/notifications/unread-count` | Authenticated | Own unread count |
 | PATCH | `/notifications/:id/read` | Notification owner | Mark one read |

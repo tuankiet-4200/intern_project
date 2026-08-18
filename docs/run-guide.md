@@ -30,6 +30,19 @@ DEEPSEEK_TIMEOUT_MS=20000
 
 Không thêm key vào biến `NEXT_PUBLIC_*`, source code hoặc commit. Nếu không có key, chat người-người vẫn hoạt động nhưng Vendor không thể bật AI.
 
+Để hiện phương thức thanh toán SePay, cấu hình trong `apps/api/.env` rồi khởi động lại API:
+
+```bash
+SEPAY_ENV=sandbox
+SEPAY_MERCHANT_ID=your_merchant_id
+SEPAY_SECRET_KEY=your_merchant_secret
+SEPAY_IPN_SECRET=your_configured_ipn_secret
+SEPAY_PAYMENT_METHOD=BANK_TRANSFER
+SEPAY_RETURN_URL=http://localhost:3000/payments/sepay/return
+```
+
+Trong merchant sandbox, IPN trỏ tới public HTTPS `POST /api/payments/webhooks/sepay`; localhost cần tunnel. Không thêm bất kỳ SePay secret nào vào `NEXT_PUBLIC_*` hoặc Web env.
+
 Mac/Linux neu port `5433`, `6380`, `5673`, `15673`, `3000`, `3005` dang ban, hay doi port trong `.env` hoac `docker-compose.yml`.
 
 ## 2. Cai dependencies

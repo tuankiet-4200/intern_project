@@ -81,6 +81,12 @@ API:
 | `BANK_TRANSFER_PROVIDER` | Stable namespace, không đổi sau khi đã nhận event/reference |
 | `BANK_TRANSFER_WEBHOOK_SECRET` | HMAC secret tối thiểu 32 ký tự từ secret manager |
 | `PAYMENT_WEBHOOK_TOLERANCE_SECONDS` | Replay window, khuyến nghị `300`, tối thiểu `30` |
+| `SEPAY_ENV` | `sandbox` khi certification; `production` chỉ sau sign-off |
+| `SEPAY_MERCHANT_ID` | Merchant credential từ secret manager |
+| `SEPAY_SECRET_KEY` | Merchant API/signing secret; không expose dưới `NEXT_PUBLIC_*` |
+| `SEPAY_IPN_SECRET` | Secret khớp cấu hình merchant portal `X-Secret-Key` |
+| `SEPAY_PAYMENT_METHOD` | `BANK_TRANSFER` hoặc `NAPAS_BANK_TRANSFER` |
+| `SEPAY_RETURN_URL` | Exact HTTPS Web URL `/payments/sepay/return` của environment |
 | `DEEPSEEK_API_KEY` | Secret server-side; bắt buộc trước khi shop có thể bật AI chat |
 | `DEEPSEEK_BASE_URL` | Mặc định `https://api.deepseek.com`; chỉ đổi qua reviewed provider gateway |
 | `DEEPSEEK_MODEL` | Model deploy được phê duyệt; baseline `deepseek-v4-flash` |
@@ -96,7 +102,9 @@ Web:
 Infrastructure/future integrations:
 
 - `RABBITMQ_URL` khi publish/consume events.
-- Provider API credential khi thêm request-out adapter/reconciliation; webhook secret ở trên đã bắt buộc cho callback.
+- SePay IPN URL phải là public HTTPS `POST <API_ORIGIN>/api/payments/webhooks/sepay`; localhost chỉ dùng qua tunnel trong sandbox.
+- Trước production, test hosted success/cancel/error, delayed/duplicate IPN, return-before-IPN, exact amount và retry từ Orders với một merchant sandbox riêng.
+- Automated SePay refund chưa được hỗ trợ và bị API reject; không quảng bá refund tự động trước khi có outbound/provider runbook đã duyệt.
 
 Không log các biến secret.
 

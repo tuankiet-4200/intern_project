@@ -59,6 +59,7 @@ enum ShopOrderStatus {
 enum PaymentMethod {
   COD
   BANK_TRANSFER
+  SEPAY
 }
 
 enum PaymentStatus {

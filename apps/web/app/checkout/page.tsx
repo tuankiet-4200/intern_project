@@ -8,6 +8,7 @@ import { apiRequest, formatVnd } from '@/lib/api';
 import { setCartItemCount } from '@/lib/cart-indicator';
 import { parseCheckoutItemIds } from '@/lib/checkout-selection';
 import { productDetailPath } from '@/lib/product-detail';
+import { SepayCheckoutPayload, submitSepayCheckout } from '@/lib/sepay';
 import { ArrowLeft, Check, CircleHelp, MapPin, PackageCheck, Tag, X } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -23,7 +24,12 @@ type CartItem = {
 type Cart = { items: CartItem[]; itemCount: number };
 type Address = AddressDraft & { id: string; isDefault: boolean };
 type Quote = { subtotal: string; discount: string; shipping: string; total: string };
-type PaymentMethod = 'COD' | 'BANK_TRANSFER';
+type PaymentMethod = 'COD' | 'BANK_TRANSFER' | 'SEPAY';
+type PaymentConfiguration = { provider: 'SEPAY'; configured: boolean };
+type CommittedOrder = {
+  id: string;
+  payments: Array<{ id: string; method: PaymentMethod; status: string }>;
+};
 type AvailableCoupon = {
   id: string;
   code: string;
@@ -56,6 +62,7 @@ function CheckoutContent() {
   const [availableCoupons, setAvailableCoupons] = useState<AvailableCoupon[]>([]);
   const [addressId, setAddressId] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('COD');
+  const [sepayConfigured, setSepayConfigured] = useState(false);
   const [couponCode, setCouponCode] = useState('');
   const [appliedCoupon, setAppliedCoupon] = useState('');
   const [selectedCouponId, setSelectedCouponId] = useState('');
@@ -80,10 +87,11 @@ function CheckoutContent() {
     setItems([]);
     setQuote(null);
     try {
-      const [cartResult, addressResult, couponResult] = await Promise.all([
+      const [cartResult, addressResult, couponResult, paymentConfiguration] = await Promise.all([
         apiRequest<Cart>('/cart', {}, true),
         apiRequest<Address[]>('/users/me/addresses', {}, true),
         apiRequest<AvailableCoupon[]>('/coupons/available', {}, true),
+        apiRequest<PaymentConfiguration>('/payments/sepay/configuration', {}, true),
       ]);
       const requested = new Set(requestedIds);
       const selectedItems = cartResult.items.filter((item) => requested.has(item.id));
@@ -92,6 +100,7 @@ function CheckoutContent() {
       setCartItemCount(cartResult.itemCount);
       setAddresses(addressResult);
       setAvailableCoupons(couponResult);
+      setSepayConfigured(paymentConfiguration.configured);
       setAddressId((current) => current || addressResult.find((address) => address.isDefault)?.id || addressResult[0]?.id || '');
       setShowAddAddress(addressResult.length === 0);
       setQuote(await apiRequest<Quote>('/checkout/quote', {
@@ -159,7 +168,7 @@ function CheckoutContent() {
       idempotency.current = { signature, key: crypto.randomUUID() };
     }
     try {
-      const order = await apiRequest<{ id: string }>('/checkout/commit', {
+      const order = await apiRequest<CommittedOrder>('/checkout/commit', {
         method: 'POST',
         body: JSON.stringify({
           cartItemIds: requestedIds,
@@ -169,13 +178,31 @@ function CheckoutContent() {
           idempotencyKey: idempotency.current.key,
         }),
       }, true);
-      idempotency.current = null;
       try {
         const remainingCart = await apiRequest<Cart>('/cart', {}, true);
         setCartItemCount(remainingCart.itemCount);
       } catch {
         // The order is already committed. AppShell will reconcile the badge after navigation.
       }
+      if (paymentMethod === 'SEPAY') {
+        const payment = order.payments.find((entry) => entry.method === 'SEPAY');
+        if (!payment) throw new Error('Đơn hàng đã tạo nhưng không tìm thấy giao dịch SePay.');
+        try {
+          const checkout = await apiRequest<SepayCheckoutPayload>(
+            `/payments/sepay/${payment.id}/checkout`,
+            { method: 'POST' },
+            true,
+          );
+          idempotency.current = null;
+          submitSepayCheckout(checkout);
+          return;
+        } catch {
+          idempotency.current = null;
+          router.push(`/orders?created=${order.id}&payment_error=1`);
+          return;
+        }
+      }
+      idempotency.current = null;
       router.push(`/orders?created=${order.id}`);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Không thể đặt hàng. Vui lòng thử lại.');
@@ -263,9 +290,11 @@ function CheckoutContent() {
                 onChange={setPaymentMethod}
                 options={[
                   { value: 'COD', label: 'Thanh toán khi nhận hàng', description: 'Thanh toán tiền mặt cho đơn vị vận chuyển' },
+                  ...(sepayConfigured ? [{ value: 'SEPAY' as const, label: 'Thanh toán điện tử qua SePay', description: 'Chuyển khoản hoặc quét QR trên cổng SePay bảo mật' }] : []),
                   { value: 'BANK_TRANSFER', label: 'Chuyển khoản ngân hàng', description: 'Xác nhận thanh toán bằng chuyển khoản' },
                 ]}
               />
+              {!sepayConfigured ? <p className="mt-2 text-xs text-amber-700">SePay chưa được cấu hình trên máy chủ.</p> : null}
             </div>
             <div className="mt-5 border-t border-[var(--line)] pt-4">
               <div className="flex items-center gap-2"><Tag size={17} className="text-[var(--accent)]" /><h3 className="font-bold">Mã giảm giá</h3></div>
@@ -299,7 +328,7 @@ function CheckoutContent() {
               </dl>
             ) : null}
             <button type="button" className="button-primary mt-5 h-12 w-full" onClick={() => void placeOrder()} disabled={submitting || !quote || !addressId}>
-              {submitting ? 'Đang đặt hàng…' : 'Đặt hàng'}
+              {submitting ? 'Đang đặt hàng…' : paymentMethod === 'SEPAY' ? 'Thanh toán qua SePay' : 'Đặt hàng'}
             </button>
           </aside>
         </div>

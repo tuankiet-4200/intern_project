@@ -198,7 +198,7 @@ Acceptance:
 
 ## Phase 5 - Post-Roadmap Reliability & Operations
 
-Status: complete for the agreed provider-neutral scope. The only excluded product integration is the selected payment provider adapter/reconciliation.
+Status: complete for the provider-neutral core and the selected SePay payment-initiation/settlement adapter. Provider refund automation and real staging credentials remain external follow-up.
 
 Phase 5A financial reliability completed:
 
@@ -280,8 +280,9 @@ Phase 5F role-aware frontend experience completed:
 
 Remaining external integration:
 
-1. Provider-specific bank-transfer adapter and reconciliation job.
-2. Configure staging GitHub Environment secrets/URLs and a hosting rollout webhook, then execute the supplied workflow against the selected infrastructure.
+1. Configure real SePay sandbox/production merchant credentials, a public HTTPS IPN URL and staging return URL, then run an end-to-end money-flow certification.
+2. Define a reviewed SePay bank-transfer refund/outbound-transfer process before enabling automated refunds for `SEPAY` payments.
+3. Configure staging GitHub Environment secrets/URLs and a hosting rollout webhook, then execute the supplied workflow against the selected infrastructure.
 
 ## Phase 6 - Shop Live Chat & Catalog-Grounded AI
 
@@ -380,6 +381,32 @@ Acceptance:
 - Idempotency treats a changed item selection as a different checkout request.
 - Cart contains no address/payment/coupon form; Checkout owns those steps.
 - Cart, Checkout and Orders product names navigate through the canonical product-detail path.
+
+## Phase 10 - SePay Electronic Payment Provider
+
+Status: application implementation complete; real merchant certification remains external.
+
+Done:
+
+- Added `SEPAY` as a distinct PaymentMethod and migration `20260818213000_add_sepay_payment_method`.
+- Added the official `sepay-pg-node` adapter for signed one-time hosted checkout fields in sandbox or production.
+- Used the internal Payment UUID as `order_invoice_number`, exact whole-number VND amount and owner-scoped checkout/retry endpoints.
+- Added public SePay IPN handling authenticated by constant-time `X-Secret-Key` comparison.
+- Required `ORDER_PAID`, `CAPTURED`, `APPROVED`, VND and exact Decimal amount before settlement.
+- Routed IPN and direct API reconciliation through the existing PaymentWebhookEvent/history/state-machine transaction instead of updating ParentOrder directly.
+- Added a dedicated return page that reconciles server-to-server and never trusts browser query parameters as proof of payment.
+- Added retry payment on customer Orders and CSP/form-action allowlisting for only the official SePay hosted origins.
+- Explicitly rejected unsupported SePay automated refunds so no refund remains permanently pending without a provider completion path.
+- Added SDK/unit, Web URL/form/CSP and PostgreSQL IPN replay/amount/security coverage.
+
+Acceptance:
+
+- Missing SePay credentials fail before checkout commits an order.
+- Another user cannot create or reconcile a SePay checkout for an order they do not own.
+- IPN with wrong secret, wrong state, currency or amount cannot mutate payment state.
+- Exact IPN replay returns idempotently and cannot create a second webhook audit row.
+- Browser success callback alone cannot mark a payment paid.
+- An unpaid SePay order can reopen hosted checkout from Orders.
 
 ## Backlog
 

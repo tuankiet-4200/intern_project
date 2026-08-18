@@ -17,6 +17,7 @@ describe('Web security headers', () => {
     expect(csp).toContain("script-src-attr 'none'");
     expect(csp).toContain("frame-src 'none'");
     expect(csp).toContain("frame-ancestors 'none'");
+    expect(csp).toContain("form-action 'self' https://pay-sandbox.sepay.vn https://pay.sepay.vn");
     expect(csp).not.toContain("'unsafe-eval'");
     expect(headers).toContainEqual({ key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), payment=()' });
     expect(headers).toContainEqual({ key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' });

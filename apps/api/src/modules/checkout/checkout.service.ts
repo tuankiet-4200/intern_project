@@ -1,10 +1,17 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import {
   CouponScope,
   CouponType,
   InventoryReason,
   NotificationType,
   PaymentStatus,
+  PaymentMethod,
   Prisma,
   ProductStatus,
   ShopStatus,
@@ -12,6 +19,7 @@ import {
 import { createHash, randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { OutboxService } from '../notifications/outbox.service';
+import { SepayGatewayService } from '../payments/sepay-gateway.service';
 import { CheckoutCommitDto, CheckoutQuoteDto } from './dto/checkout.dto';
 
 type DbClient = PrismaService | Prisma.TransactionClient;
@@ -33,6 +41,7 @@ export class CheckoutService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly outbox?: OutboxService,
+    private readonly sepay?: SepayGatewayService,
   ) {}
 
   async quote(userId: string, dto: CheckoutQuoteDto) {
@@ -41,6 +50,10 @@ export class CheckoutService {
   }
 
   async commit(userId: string, dto: CheckoutCommitDto) {
+    if (dto.paymentMethod === PaymentMethod.SEPAY) {
+      if (!this.sepay) throw new ServiceUnavailableException('SePay payment service is unavailable');
+      this.sepay.assertConfigured();
+    }
     const fingerprint = this.fingerprint(dto);
 
     for (let attempt = 0; attempt < CheckoutService.MAX_TRANSACTION_ATTEMPTS; attempt += 1) {
@@ -158,6 +171,7 @@ export class CheckoutService {
                 method: dto.paymentMethod,
                 status: PaymentStatus.UNPAID,
                 amount: pricing.total,
+                provider: dto.paymentMethod === PaymentMethod.SEPAY ? 'sepay' : null,
               },
             });
 
