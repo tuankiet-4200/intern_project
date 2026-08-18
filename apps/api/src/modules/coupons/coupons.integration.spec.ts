@@ -3,6 +3,7 @@ import { BadRequestException } from '@nestjs/common';
 import { CouponScope, CouponType, PaymentMethod, ProductStatus, ShopStatus, UserRole } from '@prisma/client';
 import { describe, expect, it } from '@jest/globals';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RecommendationsService } from '../recommendations/recommendations.service';
 import { CartService } from '../cart/cart.service';
 import { CheckoutService } from '../checkout/checkout.service';
 import { CouponsService } from './coupons.service';
@@ -11,8 +12,9 @@ describe('Coupon campaign integration', () => {
   it('manages campaigns and enforces per-customer limits during checkout', async () => {
     const prisma = new PrismaService();
     const coupons = new CouponsService(prisma);
-    const cart = new CartService(prisma);
-    const checkout = new CheckoutService(prisma);
+    const recommendations = new RecommendationsService(prisma);
+    const cart = new CartService(prisma, recommendations);
+    const checkout = new CheckoutService(prisma, recommendations);
     const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const userIds: string[] = [];
     let shopId: string | undefined;

@@ -1,13 +1,15 @@
 import 'dotenv/config';
 import { BadRequestException } from '@nestjs/common';
-import { ProductStatus, ShopStatus, UserRole } from '@prisma/client';
+import { InteractionType, ProductStatus, ShopStatus, UserRole } from '@prisma/client';
 import { afterAll, beforeAll, describe, expect, it } from '@jest/globals';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RecommendationsService } from '../recommendations/recommendations.service';
 import { WishlistService } from './wishlist.service';
 
 describe('WishlistService integration', () => {
   const prisma = new PrismaService();
-  const service = new WishlistService(prisma);
+  const recommendations = new RecommendationsService(prisma);
+  const service = new WishlistService(prisma, recommendations);
   const nonce = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const emails = [
     `wishlist-owner-${nonce}@example.com`,
@@ -64,6 +66,10 @@ describe('WishlistService integration', () => {
     await service.add(customerAId, productId);
 
     await expect(prisma.wishlistItem.count({ where: { userId: customerAId, productId } })).resolves.toBe(1);
+    await expect(prisma.userInteraction.findUniqueOrThrow({
+      where: { userId_productId_type: { userId: customerAId, productId, type: InteractionType.WISHLIST } },
+      select: { count: true },
+    })).resolves.toEqual({ count: 1 });
     await expect(service.productIds(customerAId)).resolves.toEqual({ productIds: [productId] });
     const page = await service.list(customerAId, { page: 1, limit: 20 });
     expect(page.total).toBe(1);

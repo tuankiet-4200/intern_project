@@ -46,6 +46,14 @@ Wishlist:
 - A product must be public when first saved; an already saved product remains listed with `isPurchasable=false` after it becomes unavailable.
 - Wishlist list returns non-negative current available stock and uses pagination.
 
+Recommendations:
+
+- Repeated signals aggregate into one user/product/type row and their ranking influence is capped.
+- PURCHASE, ADD_TO_CART and WISHLIST carry stronger intent than VIEW; scores decay against real elapsed time.
+- Personalized ranking reads only the authenticated account's signals and reset deletes only that account's rows.
+- Cold-start falls back to trending, while both personalized and public results exclude inactive products, unapproved shops and unavailable inventory.
+- Cart, first-time Wishlist add and successful Checkout create their signals transactionally; idempotent retries do not duplicate PURCHASE or WISHLIST intent.
+
 Inventory:
 
 - Available stock equals `onHand - reserved`.
@@ -148,6 +156,8 @@ Frontend:
 - Cart selection initially includes only valid items, remains immutable/preserved after refresh and produces a validated deterministic Checkout URL.
 - `/checkout` is protected for Customer/Vendor and receives selected item IDs; Admin/anonymous access is blocked by the route gate and backend guards.
 - Cart and Order product links use the shared slug encoder; Order API includes the current product slug without replacing historical name/price/image snapshots.
+- Home renders a separate cold-start/personalized recommendation shelf without replacing search/category Catalog results; its cards reuse current Cart/Wishlist behavior.
+- Product Detail sends at most one view request per mounted product/session and tracking failure never hides the product.
 
 Operations:
 

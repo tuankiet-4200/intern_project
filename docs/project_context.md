@@ -44,7 +44,7 @@ Included in the first 2-month plan:
 Explicitly out of scope for now:
 
 - Shipper app.
-- Product recommendation engine.
+- ML/embedding recommendation infrastructure and experimentation platform; the explainable interaction-based heuristic baseline is implemented.
 
 ## Completed So Far
 
@@ -267,6 +267,15 @@ Phase 10 SePay electronic payment:
 - Added targeted SDK/Web tests plus PostgreSQL IPN integration coverage for wrong secret, exact replay and amount mismatch.
 - Applied the tenth migration locally and verified API/Web compilation; automated SePay refunds remain explicitly rejected until a provider-supported refund workflow is selected.
 
+Phase 11 interaction-based product recommendations:
+
+- Added aggregated per-account VIEW, WISHLIST, ADD_TO_CART and PURCHASE signals with unique user/product/type storage.
+- Added explainable ranking using intent weight, actual-time recency decay, bounded frequency, category/shop affinity, sold-stock popularity and freshness.
+- Added public trending cold-start plus authenticated personalized recommendation APIs, both restricted to public in-stock Catalog products.
+- Wired Product Detail view tracking and transactionally wired Wishlist, Cart and Checkout signals.
+- Added Home recommendation shelf, existing Cart/Wishlist actions and current-account personalization reset.
+- Added migration `20260818230000_phase9_product_recommendations`, ranking unit tests and PostgreSQL integration coverage.
+
 Governance/context:
 
 - Added `.agents/senior-tech-lead.rules.md`.
@@ -401,6 +410,12 @@ Verified:
 - Web webpack production build generated 27 routes including `/payments/sepay/return`; default Turbopack remained blocked by the execution environment's PostCSS process-port restriction.
 - Final SePay regression passed: API 24 suites/54 tests, Web 16 suites/46 tests and HTTP E2E 3 suites/5 tests; API/Web lint and API build passed, and production dependency audit reported zero vulnerabilities.
 - Local runtime smoke returned HTTP 200 with the expected cancelled state for `/payments/sepay/return`; an unsigned/unconfigured IPN failed closed with HTTP 503. Browser discovery had no connected instance after the required retry, so route compilation, HTTP smoke and automated tests cover this session's UI verification.
+- Phase 11 recommendation migration `20260818230000_phase9_product_recommendations` applied successfully and Prisma Client regenerated.
+- Recommendation ranking unit tests passed 4/4; PostgreSQL recommendation/Wishlist/Checkout/Coupon integration passed 4 suites/8 tests.
+- Public recommendation runtime smoke returned HTTP 200 with `personalized=false`, `reason=TRENDING` and only current ACTIVE/APPROVED/in-stock products.
+- Final Phase 11 regression passed: API 26 suites/61 tests, HTTP E2E 3 suites/5 tests and Web 17 suites/49 tests. API/Web lint, API build and the 27-route Web webpack production build passed; Prisma reports all 11 migrations up to date. Default Turbopack remained blocked by the environment's PostCSS process-port restriction.
+- Authenticated localhost smoke returned login 200, view tracking 201 and recommendation 200 with `personalized=true`, `reason=INTERACTIONS`; no access token was printed.
+- Phase 11 visual Browser click-through could not run because browser runtime discovery found no browser and its installed troubleshooting reference pointed to a removed plugin version; automated UI tests, production compilation and localhost API smoke are green.
 
 ## Current Risks / Gaps
 
@@ -426,13 +441,15 @@ Verified:
 - Chat content currently has retention/storage but no moderation, attachment upload or end-to-end encryption policy; define retention/privacy/abuse controls before public launch.
 - `GET /wishlist/product-ids` intentionally returns a compact full ID set for instant heart state; if individual wishlists grow to thousands of products, replace it with bounded membership checks or page-level authenticated projection.
 - Checkout selection is encoded in the URL for reload/share-safe navigation and capped at 99 UUIDs (about 4 KB worst case). Production proxies must permit that request-target size; a future very-large-cart design should use a short-lived server-side checkout session instead.
+- Recommendation ranking is an explainable in-request heuristic capped at 100 interaction aggregates and 80 candidates. Before large-catalog rollout, add offline retrieval/cache, exposure metrics, diversity/fairness guardrails and a reviewed privacy/retention policy rather than increasing query limits indefinitely.
 
 ## Next Recommended Step
 
-The agreed application baseline, including shop chat, catalog-grounded AI, Admin governance, Wishlist and selective dedicated Checkout, is complete. Remaining follow-up depends on external choices/access or scale requirements:
+The agreed application baseline, including shop chat, catalog-grounded AI, Admin governance, Wishlist, selective dedicated Checkout and interaction-based recommendations, is complete. Remaining follow-up depends on external choices/access or scale requirements:
 
 1. Configure a SePay sandbox merchant, `SEPAY_*` secrets, public HTTPS `/api/payments/webhooks/sepay` IPN URL and run a real payment certification.
 2. Define the operational/provider contract for SePay refunds before implementing automated outbound money movement.
 3. Configure `DEEPSEEK_API_KEY` in the API secret manager, enable AI per shop and verify answers against staging catalog data.
 4. Add Redis Socket.IO fan-out and a durable AI job worker before multi-replica production rollout.
 5. Configure staging environment secrets/URLs and execute the supplied staging/backup/restore/load/rollback workflows on real infrastructure.
+6. Collect recommendation exposure/conversion metrics and define an A/B/privacy policy before considering collaborative or ML ranking.

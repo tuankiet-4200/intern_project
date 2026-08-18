@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, ProductStatus, ShopStatus } from '@prisma/client';
+import { InteractionType, Prisma, ProductStatus, ShopStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RecommendationsService } from '../recommendations/recommendations.service';
 import { AddCartItemDto, UpdateCartItemDto } from './dto/cart.dto';
 
 const CART_INCLUDE = {
@@ -20,7 +21,10 @@ const CART_INCLUDE = {
 
 @Injectable()
 export class CartService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly recommendations: RecommendationsService,
+  ) {}
 
   async getCart(userId: string) {
     const cart = await this.prisma.cart.upsert({
@@ -47,6 +51,7 @@ export class CartService {
         update: { quantity: nextQuantity },
         create: { cartId: cart.id, productId: dto.productId, quantity: dto.quantity },
       });
+      await this.recommendations.recordInteraction(tx, userId, dto.productId, InteractionType.ADD_TO_CART);
     });
     return this.getCart(userId);
   }

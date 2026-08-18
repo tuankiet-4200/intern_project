@@ -4,6 +4,7 @@ import { AppShell } from '@/components/AppShell';
 import { apiRequest, formatVnd, getSession, subscribeSession } from '@/lib/api';
 import { setCartItemCount } from '@/lib/cart-indicator';
 import { productDetailPath } from '@/lib/product-detail';
+import { recommendationExplanation, recommendationRequest } from '@/lib/recommendations';
 import { shouldResetSubmittedSearch } from '@/lib/search-filter';
 import { updateWishlistMembership, wishlistProductIdSet } from '@/lib/wishlist';
 import {
@@ -38,6 +39,12 @@ type Product = {
   inventory: { onHand: number; reserved: number };
 };
 
+type RecommendationResult = {
+  items: Product[];
+  personalized: boolean;
+  reason: 'INTERACTIONS' | 'TRENDING';
+};
+
 const EMPTY_WISHLIST_IDS = new Set<string>();
 
 export default function Home() {
@@ -53,6 +60,10 @@ export default function Home() {
   const [addingId, setAddingId] = useState('');
   const [wishlistState, setWishlistState] = useState<{ userId: string; productIds: Set<string> }>({ userId: '', productIds: new Set() });
   const [wishlistLoadingId, setWishlistLoadingId] = useState('');
+  const [recommendations, setRecommendations] = useState<RecommendationResult | null>(null);
+  const [recommendationsLoading, setRecommendationsLoading] = useState(true);
+  const [recommendationsResetting, setRecommendationsResetting] = useState(false);
+  const [recommendationMessage, setRecommendationMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const wishlistProductIds = session && wishlistState.userId === session.user.id ? wishlistState.productIds : EMPTY_WISHLIST_IDS;
 
   const loadProducts = useCallback(async (query = '', categoryId: number | null = null) => {
@@ -91,6 +102,32 @@ export default function Home() {
       });
     return () => { active = false; };
   }, [session]);
+
+  const loadRecommendations = useCallback(async () => {
+    setRecommendationsLoading(true);
+    const request = recommendationRequest(session?.user.role);
+    try {
+      const result = await apiRequest<RecommendationResult>(
+        request.path,
+        {},
+        request.requireAuth,
+      );
+      setRecommendations(result);
+    } catch {
+      try {
+        setRecommendations(await apiRequest<RecommendationResult>('/recommendations/public?limit=4'));
+      } catch {
+        setRecommendations(null);
+      }
+    } finally {
+      setRecommendationsLoading(false);
+    }
+  }, [session]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void loadRecommendations(), 0);
+    return () => window.clearTimeout(timer);
+  }, [loadRecommendations]);
 
   function submitSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -161,6 +198,24 @@ export default function Home() {
     }
   }
 
+  async function resetRecommendations() {
+    if (!session || session.user.role === 'ADMIN') return;
+    setRecommendationsResetting(true);
+    setRecommendationMessage(null);
+    try {
+      await apiRequest('/recommendations/interactions', { method: 'DELETE' }, true);
+      await loadRecommendations();
+      setRecommendationMessage({ type: 'success', text: 'Đã đặt lại dữ liệu gợi ý; danh sách hiện dùng sản phẩm nổi bật.' });
+    } catch (requestError) {
+      setRecommendationMessage({
+        type: 'error',
+        text: requestError instanceof Error ? requestError.message : 'Không thể đặt lại gợi ý lúc này.',
+      });
+    } finally {
+      setRecommendationsResetting(false);
+    }
+  }
+
   return (
     <AppShell>
       <section className="relative overflow-hidden rounded-[28px] bg-[#123b31] px-6 py-10 text-white shadow-[var(--shadow-md)] sm:px-10 lg:grid lg:grid-cols-[1.1fr_0.9fr] lg:items-center lg:px-14 lg:py-14">
@@ -213,11 +268,56 @@ export default function Home() {
         <TrustItem icon={Store} title="Đa dạng cửa hàng" description="Một giỏ hàng, nhiều nhà bán" />
       </section>
 
-      <section id="catalog" className="mt-4 scroll-mt-28">
+      {recommendationsLoading || recommendations?.items.length ? (
+        <section className="mt-4" aria-labelledby="recommendation-heading">
+          <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
+            <div>
+              <p className="eyebrow">Khám phá theo sở thích</p>
+              <h2 id="recommendation-heading" className="mt-2 text-3xl font-black tracking-[-0.035em]">Gợi ý dành cho bạn</h2>
+              <p className="mt-2 text-sm text-[var(--muted)]">
+                {recommendationExplanation(Boolean(recommendations?.personalized))}
+              </p>
+            </div>
+            {recommendations?.personalized ? (
+              <button type="button" className="button-ghost self-start text-sm sm:self-auto" disabled={recommendationsResetting} onClick={() => void resetRecommendations()}>
+                {recommendationsResetting ? 'Đang đặt lại…' : 'Đặt lại gợi ý'}
+              </button>
+            ) : null}
+          </div>
+          {recommendationMessage ? (
+            <p className={`mt-4 rounded-xl px-4 py-3 text-sm ${recommendationMessage.type === 'success' ? 'bg-emerald-100 text-emerald-900' : 'bg-red-50 text-red-800'}`}>
+              {recommendationMessage.text}
+            </p>
+          ) : null}
+          {recommendationsLoading ? (
+            <div className="mt-5 grid min-h-56 place-items-center rounded-2xl border border-dashed border-[var(--line)] bg-white/50">
+              <span className="loading-spinner" aria-label="Đang tải gợi ý sản phẩm" />
+            </div>
+          ) : (
+            <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {recommendations?.items.map((product, index) => (
+                <ProductCard
+                  key={`recommendation-${product.id}`}
+                  product={product}
+                  index={index + 1}
+                  adding={addingId === product.id}
+                  wished={wishlistProductIds.has(product.id)}
+                  wishlistLoading={wishlistLoadingId === product.id}
+                  canWishlist={session?.user.role !== 'ADMIN'}
+                  onAdd={() => void addToCart(product)}
+                  onWishlist={() => void toggleWishlist(product)}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+      ) : null}
+
+      <section id="catalog" className="mt-12 scroll-mt-28">
         <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
           <div>
             <p className="eyebrow">Khám phá marketplace</p>
-            <h2 className="mt-2 text-3xl font-black tracking-[-0.035em]">Sản phẩm dành cho bạn</h2>
+            <h2 className="mt-2 text-3xl font-black tracking-[-0.035em]">Tất cả sản phẩm</h2>
             <p className="mt-2 text-sm text-[var(--muted)]">Sản phẩm còn hàng từ các cửa hàng đang hoạt động.</p>
           </div>
           <span className="text-sm font-semibold text-[var(--muted)]">{loading ? 'Đang cập nhật…' : `${products.length} sản phẩm`}</span>

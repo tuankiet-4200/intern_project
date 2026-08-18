@@ -30,7 +30,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 
 type Product = {
   id: string;
@@ -81,6 +81,7 @@ export default function ProductDetailPage() {
   const [reviewsUnavailable, setReviewsUnavailable] = useState(false);
   const [actionMessage, setActionMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [adding, setAdding] = useState(false);
+  const trackedViews = useRef(new Set<string>());
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -118,6 +119,18 @@ export default function ProductDetailPage() {
     const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);
   }, [load]);
+
+  useEffect(() => {
+    if (!product || !session || session.user.role === 'ADMIN' || trackedViews.current.has(product.id)) return;
+    trackedViews.current.add(product.id);
+    void apiRequest(
+      `/recommendations/interactions/views/${product.id}`,
+      { method: 'POST' },
+      true,
+    ).catch(() => {
+      trackedViews.current.delete(product.id);
+    });
+  }, [product, session]);
 
   const available = product ? availableStock(product.inventory.onHand, product.inventory.reserved) : 0;
   const discount = product ? discountPercentage(product.price, product.compareAtPrice) : 0;

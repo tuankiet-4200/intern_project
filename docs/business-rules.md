@@ -35,6 +35,16 @@
 - Product đã lưu vẫn nằm trong wishlist nếu sau đó hết hàng, chuyển draft hoặc shop ngừng hoạt động; UI phải đánh dấu không thể mua thay vì làm mất lựa chọn của user.
 - Wishlist không giữ chỗ tồn kho và không bảo đảm giá. Cart/checkout vẫn phải kiểm tra lại trạng thái, giá và `onHand - reserved`.
 
+## Product Recommendations
+
+- Chỉ CUSTOMER/VENDOR đã xác thực mới có dữ liệu cá nhân hóa; anonymous dùng danh sách trending và hệ thống không tạo guest fingerprint.
+- Tín hiệu gồm VIEW, WISHLIST, ADD_TO_CART và PURCHASE; mỗi cặp user/product/type chỉ có một row tổng hợp với count và lần tương tác gần nhất.
+- Điểm phải giảm theo thời gian và ảnh hưởng của thao tác lặp phải có giới hạn để refresh/click spam không chi phối vô hạn.
+- Recommendation chỉ trả Product ACTIVE của Shop APPROVED với `onHand - reserved > 0`, bất kể sản phẩm từng được tương tác lúc nào.
+- Wishlist/Cart/Checkout ghi tín hiệu trong cùng transaction nghiệp vụ; retry checkout cùng idempotency key không được tăng PURCHASE lần hai.
+- User chỉ đọc/xóa dữ liệu cá nhân hóa của chính mình. Reset phải đưa tài khoản về cold-start trending mà không ảnh hưởng user khác.
+- Không lưu nội dung tìm kiếm, IP, user-agent hoặc secret trong bảng tương tác; xóa User/Product phải cascade dữ liệu tương ứng.
+
 ## Cart
 
 - Cart luu product id va quantity, gia chi la preview.

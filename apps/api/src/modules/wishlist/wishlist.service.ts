@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { ProductStatus, ShopStatus } from '@prisma/client';
+import { InteractionType, ProductStatus, ShopStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RecommendationsService } from '../recommendations/recommendations.service';
 import { WishlistQueryDto } from './dto/wishlist.dto';
 
 const WISHLIST_PRODUCT_SELECT = {
@@ -18,7 +19,10 @@ const WISHLIST_PRODUCT_SELECT = {
 
 @Injectable()
 export class WishlistService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly recommendations: RecommendationsService,
+  ) {}
 
   async list(userId: string, query: WishlistQueryDto) {
     const where = { userId };
@@ -66,10 +70,14 @@ export class WishlistService {
       throw new BadRequestException('Only active products from approved shops can be added to a wishlist');
     }
 
-    await this.prisma.wishlistItem.upsert({
-      where: { userId_productId: { userId, productId } },
-      update: {},
-      create: { userId, productId },
+    await this.prisma.$transaction(async (tx) => {
+      const created = await tx.wishlistItem.createMany({
+        data: [{ userId, productId }],
+        skipDuplicates: true,
+      });
+      if (created.count === 1) {
+        await this.recommendations.recordInteraction(tx, userId, productId, InteractionType.WISHLIST);
+      }
     });
     return { productId, wished: true };
   }

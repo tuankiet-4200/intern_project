@@ -3,6 +3,7 @@ import { BadRequestException, ConflictException } from '@nestjs/common';
 import {
   CouponScope,
   CouponType,
+  InteractionType,
   InventoryReason,
   PaymentMethod,
   PaymentStatus,
@@ -13,6 +14,7 @@ import {
 } from '@prisma/client';
 import { describe, expect, it } from '@jest/globals';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RecommendationsService } from '../recommendations/recommendations.service';
 import { CartService } from '../cart/cart.service';
 import { OrdersService } from '../orders/orders.service';
 import { PaymentsService } from '../payments/payments.service';
@@ -22,8 +24,9 @@ import { CheckoutService } from './checkout.service';
 describe('Phase 3 commerce flow integration', () => {
   it('quotes, splits, commits idempotently, and transitions orders and payment with inventory ledgers', async () => {
     const prisma = new PrismaService();
-    const cart = new CartService(prisma);
-    const checkout = new CheckoutService(prisma);
+    const recommendations = new RecommendationsService(prisma);
+    const cart = new CartService(prisma, recommendations);
+    const checkout = new CheckoutService(prisma, recommendations);
     const orders = new OrdersService(prisma, new ShopsService(prisma));
     const payments = new PaymentsService(prisma);
     const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -199,6 +202,15 @@ describe('Phase 3 commerce flow integration', () => {
 
       const replay = await checkout.commit(customer.id, request);
       expect(replay.id).toBe(order.id);
+      const purchaseSignals = await prisma.userInteraction.findMany({
+        where: { userId: customer.id, type: InteractionType.PURCHASE },
+        select: { productId: true, count: true },
+      });
+      expect(purchaseSignals).toEqual(expect.arrayContaining([
+        { productId: productA.id, count: 1 },
+        { productId: productB.id, count: 1 },
+      ]));
+      expect(purchaseSignals).toHaveLength(2);
       await expect(
         checkout.commit(customer.id, { ...request, paymentMethod: PaymentMethod.BANK_TRANSFER }),
       ).rejects.toBeInstanceOf(ConflictException);
@@ -264,8 +276,9 @@ describe('Phase 3 commerce flow integration', () => {
 
   it('allows only one concurrent checkout when stock cannot satisfy both carts', async () => {
     const prisma = new PrismaService();
-    const cart = new CartService(prisma);
-    const checkout = new CheckoutService(prisma);
+    const recommendations = new RecommendationsService(prisma);
+    const cart = new CartService(prisma, recommendations);
+    const checkout = new CheckoutService(prisma, recommendations);
     const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const userIds: string[] = [];
     let shopId: string | undefined;

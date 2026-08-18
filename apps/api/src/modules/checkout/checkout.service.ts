@@ -8,6 +8,7 @@ import {
 import {
   CouponScope,
   CouponType,
+  InteractionType,
   InventoryReason,
   NotificationType,
   PaymentStatus,
@@ -20,6 +21,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { OutboxService } from '../notifications/outbox.service';
 import { SepayGatewayService } from '../payments/sepay-gateway.service';
+import { RecommendationsService } from '../recommendations/recommendations.service';
 import { CheckoutCommitDto, CheckoutQuoteDto } from './dto/checkout.dto';
 
 type DbClient = PrismaService | Prisma.TransactionClient;
@@ -40,6 +42,7 @@ export class CheckoutService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly recommendations: RecommendationsService,
     private readonly outbox?: OutboxService,
     private readonly sepay?: SepayGatewayService,
   ) {}
@@ -178,6 +181,15 @@ export class CheckoutService {
             await tx.cartItem.deleteMany({
               where: { id: { in: pricing.items.map((item) => item.id) } },
             });
+
+            for (const item of pricing.items) {
+              await this.recommendations.recordInteraction(
+                tx,
+                userId,
+                item.productId,
+                InteractionType.PURCHASE,
+              );
+            }
 
             if (this.outbox) await this.outbox.enqueue(tx, {
               userId,

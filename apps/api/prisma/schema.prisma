@@ -31,6 +31,13 @@ enum ProductStatus {
   ARCHIVED
 }
 
+enum InteractionType {
+  VIEW
+  WISHLIST
+  ADD_TO_CART
+  PURCHASE
+}
+
 enum InventoryReason {
   INITIAL_STOCK
   MANUAL_ADJUSTMENT
@@ -139,19 +146,20 @@ model User {
   createdAt    DateTime      @default(now()) @map("created_at")
   updatedAt    DateTime      @updatedAt @map("updated_at")
 
-  addresses         UserAddress[]
-  shops             Shop[]
-  carts             Cart[]
-  orders            ParentOrder[]
-  reviews           Review[]
-  couponUsages      CouponUsage[]
-  refreshSessions   RefreshSession[]
-  requestedRefunds  Refund[]           @relation("RefundRequestedBy")
-  notifications     Notification[]
-  chatConversations ChatConversation[] @relation("ChatCustomer")
-  chatMessages      ChatMessage[]
-  adminAuditLogs    AdminAuditLog[]
-  wishlistItems     WishlistItem[]
+  addresses           UserAddress[]
+  shops               Shop[]
+  carts               Cart[]
+  orders              ParentOrder[]
+  reviews             Review[]
+  couponUsages        CouponUsage[]
+  refreshSessions     RefreshSession[]
+  requestedRefunds    Refund[]           @relation("RefundRequestedBy")
+  notifications       Notification[]
+  chatConversations   ChatConversation[] @relation("ChatCustomer")
+  chatMessages        ChatMessage[]
+  adminAuditLogs      AdminAuditLog[]
+  wishlistItems       WishlistItem[]
+  productInteractions UserInteraction[]
 
   @@map("users")
 }
@@ -248,13 +256,14 @@ model Product {
   createdAt      DateTime      @default(now()) @map("created_at")
   updatedAt      DateTime      @updatedAt @map("updated_at")
 
-  shop          Shop           @relation(fields: [shopId], references: [id])
-  category      Category       @relation(fields: [categoryId], references: [id])
+  shop          Shop              @relation(fields: [shopId], references: [id])
+  category      Category          @relation(fields: [categoryId], references: [id])
   inventory     Inventory?
   orderItems    OrderItem[]
   cartItems     CartItem[]
   reviews       Review[]
   wishlistItems WishlistItem[]
+  interactions  UserInteraction[]
 
   @@index([shopId])
   @@index([categoryId])
@@ -275,6 +284,25 @@ model WishlistItem {
   @@index([userId, createdAt])
   @@index([productId])
   @@map("wishlist_items")
+}
+
+model UserInteraction {
+  id               String          @id @default(uuid()) @db.Uuid
+  userId           String          @map("user_id") @db.Uuid
+  productId        String          @map("product_id") @db.Uuid
+  type             InteractionType
+  count            Int             @default(1)
+  lastInteractedAt DateTime        @default(now()) @map("last_interacted_at")
+  createdAt        DateTime        @default(now()) @map("created_at")
+  updatedAt        DateTime        @updatedAt @map("updated_at")
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productId, type])
+  @@index([userId, lastInteractedAt])
+  @@index([productId, type, lastInteractedAt])
+  @@map("user_interactions")
 }
 
 model Inventory {

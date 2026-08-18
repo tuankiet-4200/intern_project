@@ -1,6 +1,6 @@
 # Execution Plan
 
-Last updated: 2026-08-17
+Last updated: 2026-08-18
 
 This is the implementation source of truth for the build-from-scratch commerce platform. Agents must read this file together with `docs/project_context.md` before editing.
 
@@ -408,11 +408,34 @@ Acceptance:
 - Browser success callback alone cannot mark a payment paid.
 - An unpaid SePay order can reopen hosted checkout from Orders.
 
+## Phase 11 - Interaction-Based Product Recommendations
+
+Status: complete for the in-application heuristic baseline. Large-catalog retrieval, experimentation and ML ranking remain optional scale work.
+
+Done:
+
+- Studied ProjectIII's view/cart/purchase weighted recommendation flow and retained its explainable heuristic direction.
+- Added aggregated `UserInteraction` signals for VIEW, WISHLIST, ADD_TO_CART and PURCHASE with one bounded row per user/product/type.
+- Recorded cart, wishlist and checkout signals in the owning business transaction; product-detail view tracking is non-blocking.
+- Added 30-day half-life recency decay, bounded repeat-event influence, category/shop affinity, sold-stock popularity and freshness scoring.
+- Added public trending cold-start and authenticated personalized APIs with search/limit validation.
+- Enforced the same ACTIVE product, APPROVED shop and positive available-stock visibility rule as public Catalog.
+- Added account-owned personalization reset and cascade cleanup without storing search text, IP address, user agent or guest fingerprint.
+- Added the Home recommendation shelf with cold-start/personalized explanation, existing Cart/Wishlist actions and a reset control.
+- Added migration `20260818230000_phase9_product_recommendations`, pure ranking tests and PostgreSQL integration coverage.
+
+Acceptance:
+
+- Anonymous/cold-start users receive only currently public, in-stock trending products.
+- Authenticated recommendations use only that account's interactions and never expose another user's signals.
+- Repeated view/add requests cannot create unbounded interaction rows or unbounded score influence.
+- Product/detail, Cart, Wishlist and Checkout remain successful only when their own domain transaction succeeds.
+- Reset deletes only the current account's personalization data and falls back to trending products.
+
 ## Backlog
 
 Do not implement unless the user explicitly changes scope:
 
 - Shipper app.
-- Product recommendation engine.
 - Dedicated search engine.
 - Microservice extraction.

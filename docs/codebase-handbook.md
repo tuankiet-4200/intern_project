@@ -1,6 +1,6 @@
 # Codebase Handbook - Multi-Vendor Commerce Platform
 
-Last updated: 2026-08-17
+Last updated: 2026-08-18
 
 Tài liệu này giải thích code và luồng chạy hiện tại của dự án cho developer mới, đặc biệt là fresher. Đây không phải tài liệu ý tưởng: nội dung bám theo source code đến Phase 5F role-aware frontend completion hiện tại.
 
@@ -567,7 +567,15 @@ Unique `(userId, productId)` là invariant ở database, không chỉ là kiểm
 
 Xóa User hoặc Product cascade WishlistItem vì item không còn giá trị độc lập. Wishlist không reserve stock, không snapshot giá và không thay thế Cart.
 
-### 6.6 Money
+### 6.6 Recommendation interactions
+
+```text
+User 1 --- n UserInteraction n --- 1 Product
+```
+
+`UserInteraction` không phải raw clickstream. Unique `(userId, productId, type)` gom mọi tín hiệu cùng loại vào một row có `count` và `lastInteractedAt`. Cách này giữ được cường độ/lần gần nhất nhưng không tăng số row vô hạn khi user reload hoặc thêm cùng sản phẩm nhiều lần. Xóa User hoặc Product cascade interaction tương ứng.
+
+### 6.7 Money
 
 Database dùng `Decimal(12,2)` và code dùng `Prisma.Decimal`.
 
@@ -2164,6 +2172,10 @@ Mọi path dưới đây có prefix `/api`.
 | GET | `/wishlist/product-ids` | Customer/Vendor | Own saved product IDs for card state |
 | PUT | `/wishlist/items/:productId` | Customer/Vendor | Idempotently save public product |
 | DELETE | `/wishlist/items/:productId` | Customer/Vendor | Idempotently remove own saved product |
+| GET | `/recommendations/public` | Public | Trending cold-start products |
+| GET | `/recommendations` | Customer/Vendor | Own interaction-based recommendations |
+| POST | `/recommendations/interactions/views/:productId` | Customer/Vendor | Record one public product view |
+| DELETE | `/recommendations/interactions` | Customer/Vendor | Reset own personalization data |
 | POST | `/checkout/quote` | Customer/Vendor | Reprice exact owned CartItem selection |
 | POST | `/checkout/commit` | Customer/Vendor | Atomic selective checkout |
 | GET | `/admin/coupons` | Admin | Search/paginate campaigns |
@@ -2817,3 +2829,190 @@ Manual happy path:
 - Retention/deletion/export/privacy policy cho message content.
 - Retrieval/ranking cho shop trên 60 sản phẩm; không tăng prompt không giới hạn.
 - Staging evaluation set để đo hallucination, cross-shop leakage và prompt injection trước khi bật rộng.
+
+---
+
+## 33. Gợi ý sản phẩm dựa trên tương tác
+
+Actor: anonymous cho cold-start; CUSTOMER/VENDOR cho cá nhân hóa. ADMIN chỉ xem public trending vì không có shopping intent. Backend module: `modules/recommendations`. Frontend entry chính: Home và Product Detail.
+
+### 33.1 Mục tiêu và phạm vi
+
+ProjectIII dùng heuristic dễ giải thích: VIEW/ADD_TO_CART/PURCHASE tạo điểm category/shop, sau đó cộng độ phổ biến. Intern Project giữ hướng này vì catalog nhỏ chưa cần pipeline ML, nhưng sửa các điểm dễ gây sai lệch:
+
+- thêm WISHLIST vì đây là intent đã tồn tại trong domain;
+- decay theo thời gian thực thay vì vị trí row trong query;
+- aggregate interaction thay vì append vô hạn;
+- cap ảnh hưởng tần suất để refresh spam không thống trị;
+- dùng đúng public visibility rule trước khi trả kết quả;
+- không catch mọi database error rồi âm thầm giả thành cold-start;
+- có endpoint xóa dữ liệu cá nhân hóa của current user.
+
+Đây là content/affinity ranking có popularity fallback, không phải collaborative filtering hay mô hình AI. Không gọi DeepSeek cho luồng này.
+
+### 33.2 Data model và lý do aggregate
+
+Enum `InteractionType`:
+
+| Type | Nguồn | Ý nghĩa |
+|---|---|---|
+| `VIEW` | mở Product Detail | quan tâm nhẹ |
+| `WISHLIST` | lưu Wishlist lần đầu | cân nhắc rõ ràng |
+| `ADD_TO_CART` | add Cart thành công | ý định mua mạnh |
+| `PURCHASE` | Checkout commit mới | ý định mạnh nhất |
+
+Mỗi `UserInteraction` lưu:
+
+- `userId`, `productId`, `type`;
+- `count` dương;
+- `lastInteractedAt` cho recency;
+- `createdAt`, `updatedAt` cho audit/debug tối thiểu.
+
+Unique `(userId, productId, type)` là concurrency boundary. `recordInteraction()` dùng Prisma upsert: request đầu tạo row, request sau atomically increment `count` và cập nhật thời gian. Không có search text, IP, user-agent, cookie/fingerprint hoặc nội dung profile trong bảng này.
+
+### 33.3 Nơi ghi từng tín hiệu và transaction boundary
+
+`RecommendationsService.recordInteraction(client, ...)` nhận `PrismaService | TransactionClient`; domain sở hữu hành động truyền transaction hiện tại vào:
+
+```text
+WishlistService.add
+  -> validate public Product
+  -> BEGIN
+     -> createMany(skipDuplicates)
+     -> chỉ khi row Wishlist mới: upsert WISHLIST interaction
+  -> COMMIT
+
+CartService.addItem
+  -> BEGIN
+     -> validate product/shop/available
+     -> upsert CartItem
+     -> upsert ADD_TO_CART interaction
+  -> COMMIT
+
+CheckoutService.commit
+  -> idempotency lookup
+  -> BEGIN SERIALIZABLE
+     -> create order/snapshots/reservation/payment
+     -> delete selected CartItems
+     -> upsert PURCHASE cho từng product
+  -> COMMIT
+```
+
+Vì checkout trả order có sẵn trước đoạn ghi signal khi gặp cùng `idempotencyKey`, retry hợp lệ không tăng PURCHASE lần hai. Nếu interaction write trong ba flow trên lỗi, transaction nghiệp vụ rollback thay vì có Cart/Order nhưng thiếu signal không nhất quán.
+
+VIEW khác có chủ ý: Product Detail đã tải thành công trước, rồi Web gửi `POST /recommendations/interactions/views/:productId` best-effort. Backend revalidate product vẫn public; frontend dùng `Set` trong `useRef` để một mounted product/session chỉ gửi một request. Tracking lỗi không làm mất nội dung product và không chặn mua/chat.
+
+### 33.4 Công thức điểm tương tác
+
+Base weight:
+
+```text
+VIEW = 1
+WISHLIST = 4
+ADD_TO_CART = 5
+PURCHASE = 8
+```
+
+Với mỗi interaction:
+
+```text
+ageDays = max(0, now - lastInteractedAt)
+recency = 2 ^ (-ageDays / 30)
+repeatBoost = min(2, 1 + log1p(max(0, count - 1)) * 0.35)
+signal = baseWeight * recency * repeatBoost
+```
+
+Sau 30 ngày signal còn một nửa. `repeatBoost <= 2` nghĩa là một account reload hàng triệu lần vẫn không có ảnh hưởng vô hạn. Signal được cộng vào hai map:
+
+- `categoryAffinity[categoryId]`;
+- `shopAffinity[shopId]`.
+
+Service chỉ đọc tối đa 100 interaction aggregates gần nhất để giữ latency/query size hữu hạn.
+
+### 33.5 Candidate generation và xếp hạng
+
+Candidate phải thỏa đồng thời:
+
+```text
+Product.status == ACTIVE
+Shop.status == APPROVED
+Inventory.onHand > Inventory.reserved
+```
+
+Query personalized chỉ lấy tối đa 80 sản phẩm thuộc category hoặc shop đã có affinity và ưu tiên sản phẩm user chưa tương tác để tăng khả năng khám phá. Mỗi candidate có điểm:
+
+```text
+score = categoryAffinity * 3
+      + shopAffinity * 1.5
+      + log1p(inventory.sold) * 0.5
+      + freshness * 0.25
+
+freshness = 1 / (1 + productAgeDays / 90)
+```
+
+Tie dùng Product UUID tăng dần để kết quả deterministic. Nếu số candidate chưa đủ limit, trending bổ sung phần thiếu; lúc catalog quá nhỏ, item từng tương tác có thể xuất hiện lại ở phần fallback để shelf không rỗng.
+
+Không query raw OrderItem cho mỗi request vì `Inventory.sold` đã được Order delivery cập nhật transactionally và phù hợp làm popularity signal. Không dùng `onHand` làm độ phổ biến.
+
+### 33.6 Public cold-start và authenticated response
+
+API:
+
+- `GET /recommendations/public?limit=8&search=...`: không JWT, sort `inventory.sold`, `createdAt`, `id`; trả `personalized=false`, `reason=TRENDING`.
+- `GET /recommendations?limit=8&search=...`: JWT CUSTOMER/VENDOR; không có interaction thì chủ động gọi cold-start; có affinity candidate thì trả `reason=INTERACTIONS`.
+- Limit từ 1 đến 20; search tối đa 140 ký tự, trim và match name/description không phân biệt hoa thường.
+
+Response dùng cùng Product projection với Catalog card: shop, category, inventory, price/images/slug. `personalized` mô tả việc phần xếp hạng cá nhân thực sự tạo được candidate, không chỉ việc user đã đăng nhập.
+
+### 33.7 Home và Product Detail frontend
+
+Home giữ hai vùng riêng:
+
+1. “Gợi ý dành cho bạn”: gọi authenticated API khi session CUSTOMER/VENDOR đã phục hồi, còn anonymous/ADMIN gọi public API. Nếu authenticated request lỗi, UI thử public fallback; nếu cả hai lỗi thì ẩn shelf, không làm mất Catalog.
+2. “Tất cả sản phẩm”: vẫn là `/products` với search/category hiện tại. Recommendation không thay thế kết quả tìm kiếm và không làm thay đổi logic xóa filter.
+
+Shelf tái sử dụng `ProductCard`, vì vậy ảnh/detail link, stock, Wishlist heart, add Cart và cart badge có cùng hành vi với Catalog. Khi reset, Home gọi DELETE own interactions, tải lại trending và hiển thị xác nhận.
+
+Product Detail chỉ record view sau khi có Product public và session mua sắm. Anonymous không bị fingerprint; ADMIN không phát shopping signal.
+
+### 33.8 Privacy, ownership và failure cases
+
+- Mọi personalized query/delete filter trực tiếp `userId` từ JWT; client không truyền target user ID.
+- Xóa User/Product cascade interaction, tránh orphan.
+- Reset xóa toàn bộ signal current account, không xóa Wishlist/Cart/Order và không ảnh hưởng account khác.
+- Product cũ chuyển DRAFT, shop SUSPENDED hoặc stock về 0 vẫn còn interaction lịch sử nhưng không thể trở thành result.
+- Ranking/database failure trả lỗi thật ở API; chỉ trường hợp “không có signal” mới là cold-start có chủ ý.
+- Không có guest tracking, cross-user data response, external analytics SDK hoặc DeepSeek request trong recommendation flow.
+
+### 33.9 Tests và manual smoke
+
+Automated:
+
+- `recommendation-ranking.spec.ts`: intent order, 30-day half-life, repeat cap và affinity-vs-popularity.
+- `recommendations.integration.spec.ts`: aggregate count, preferred-category ranking, unseen-product priority, unavailable exclusion, cold-start và account-owned reset trên PostgreSQL thật.
+- Wishlist integration chứng minh add idempotent chỉ tạo một WISHLIST signal.
+- Phase 3 Checkout/Coupon integration tiếp tục chạy với transaction signal mới, giúp phát hiện regression Cart/Checkout.
+- Web lint/test/build compile Home shelf và Product Detail view tracker cùng toàn bộ route hiện tại.
+
+Manual:
+
+1. Mở Home khi chưa login: shelf ghi sản phẩm nổi bật và thứ tự ưu tiên item có `inventory.sold` cao.
+2. Login CUSTOMER, mở Product A vài lần, wishlist Product A hoặc add Cart; quay lại/reload Home.
+3. Kiểm tra shelf ghi “Dựa trên sản phẩm…” và ưu tiên sản phẩm chưa xem cùng category/shop.
+4. Chuyển một candidate về DRAFT hoặc đưa available về 0; reload, item phải biến mất khỏi recommendation lẫn public Catalog.
+5. Click heart/cart/detail trong shelf; mỗi action phải hoạt động như card ở “Tất cả sản phẩm”, không click xuyên sang detail ngoài ý muốn.
+6. Click “Đặt lại gợi ý”; shelf trở về trending, Wishlist/Cart/Order vẫn nguyên.
+7. Login account khác; recommendation và reset của account trước không được ảnh hưởng account này.
+
+### 33.10 Giới hạn và hướng scale
+
+Heuristic hiện phù hợp catalog vừa/nhỏ và dễ audit. Khi catalog lớn hoặc cần tối ưu conversion, không tăng `MAX_CANDIDATES` vô hạn. Hướng đúng là:
+
+- offline candidate generation/materialized feature table;
+- retrieval theo embedding/search index;
+- collaborative signals đã ẩn danh và có consent/retention rõ;
+- A/B assignment, exposure log và metric guardrail;
+- diversity/novelty, out-of-stock freshness và seller fairness constraints;
+- cache theo user/version và invalidation khi catalog/inventory đổi.
+
+Chỉ chuyển sang ML khi có đủ dữ liệu, baseline metric và quy trình privacy/model evaluation; không gọi một LLM để quyết định ranking thương mại trực tiếp.
