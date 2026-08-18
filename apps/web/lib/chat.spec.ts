@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { chatMessageLabel, chatPeerName, mergeChatMessage, type ChatConversation, type ChatMessage } from './chat';
+import { chatMessageLabel, chatPeerName, mergeChatMessage, shouldSendChatMessageOnKeyDown, type ChatConversation, type ChatMessage } from './chat';
 
 const conversation = {
   id: 'conversation', shopId: 'shop', customerId: 'customer', lastMessageAt: '2026-01-01T00:00:00.000Z', unreadCount: 0,
@@ -24,5 +24,13 @@ describe('chat presentation helpers', () => {
     expect(chatPeerName(conversation, 'SHOP')).toBe('Customer Demo');
     expect(chatMessageLabel(message('ai', 'AI', '2026-01-01T00:00:00.000Z'), 'CUSTOMER')).toBe('AI của shop');
     expect(chatMessageLabel(message('shop', 'SHOP', '2026-01-01T00:00:00.000Z'), 'SHOP')).toBe('Bạn');
+  });
+
+  it('sends only on a plain Enter that is not completing an IME composition', () => {
+    expect(shouldSendChatMessageOnKeyDown({ key: 'Enter', shiftKey: false, isComposing: false, keyCode: 13 })).toBe(true);
+    expect(shouldSendChatMessageOnKeyDown({ key: 'Enter', shiftKey: true, isComposing: false, keyCode: 13 })).toBe(false);
+    expect(shouldSendChatMessageOnKeyDown({ key: 'Enter', shiftKey: false, isComposing: true, keyCode: 13 })).toBe(false);
+    expect(shouldSendChatMessageOnKeyDown({ key: 'Enter', shiftKey: false, isComposing: false, keyCode: 229 })).toBe(false);
+    expect(shouldSendChatMessageOnKeyDown({ key: 'a', shiftKey: false, isComposing: false, keyCode: 65 })).toBe(false);
   });
 });

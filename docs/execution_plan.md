@@ -299,6 +299,7 @@ Done:
 - Integrated DeepSeek through a backend-only OpenAI-compatible request; configurable endpoint/model/key/timeout.
 - Grounded the AI system prompt using only that shop's approved active catalog, current available inventory and recent conversation history.
 - Preserved the customer message when DeepSeek is unavailable and exposed pending/completed/failed generation state.
+- Made the shared Customer/Vendor composer IME-safe so Enter used to finish Vietnamese text cannot send early or restore the final composed word after the draft is cleared.
 - Added migration `20260817111452_phase6_shop_chat_ai`, idempotent demo chat seed, unit/integration coverage and fresher documentation.
 
 Acceptance:
@@ -310,6 +311,7 @@ Acceptance:
 - AI is off by default and cannot be enabled without a backend DeepSeek key.
 - AI receives no product catalog outside the target shop and may not invent missing commercial facts.
 - DeepSeek failure never rolls back or deletes the customer's message.
+- A successful send clears the complete draft; plain Enter sends, Shift+Enter inserts a line break and IME-composition Enter never submits.
 
 ## Phase 7 - Admin User & Shop Governance
 

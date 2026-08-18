@@ -2676,7 +2676,9 @@ Giới hạn: generation đang là Promise nền trong API process. Nếu proces
 - Desktop modal rộng 390px/cao 620px ở góc phải; mobile dùng gần toàn viewport và nằm trên bottom navigation.
 - Compact mode ban đầu hiện conversation list; chọn thread chuyển sang message panel với nút back. Full page dùng hai cột từ breakpoint `md`.
 - Chấm xanh báo socket connect; chấm vàng nghĩa là polling vẫn hoạt động.
-- Enter gửi, Shift+Enter xuống dòng; send disabled khi draft rỗng/đang gửi.
+- Draft là controlled state dùng chung cho Customer/Vendor. Gửi thành công xóa draft ngay; request lỗi khôi phục nội dung để người dùng không phải nhập lại.
+- Enter chỉ gửi khi textarea không ở trong một phiên ghép ký tự của bộ gõ (IME); Shift+Enter vẫn xuống dòng. `compositionstart`/`compositionend`, `nativeEvent.isComposing` và fallback `keyCode=229` cùng ngăn Enter dùng để hoàn tất dấu tiếng Việt kích hoạt gửi sớm. Nếu bỏ guard này, sự kiện composition kết thúc sau `setDraft('')` có thể ghi riêng từ cuối trở lại input.
+- Send disabled khi draft rỗng/đang gửi; click gửi cũng được chặn nếu composition chưa kết thúc.
 - Customer thấy tên shop; Vendor thấy tên customer. AI bubble dùng tone riêng và label “AI của shop”.
 - Unread được tính server-side từ read timestamp; mở thread gọi PATCH read.
 - History tải 100 message mới nhất; khi còn `nextCursor`, nút “Xem tin nhắn cũ hơn” prepend trang trước. Polling chỉ merge trang mới nhất nên không làm mất các trang cũ đã tải.
@@ -2700,18 +2702,19 @@ Automated:
 
 - `deepseek.service.spec.ts`: prompt grounding, available stock/link, endpoint/model/header và missing key.
 - `chat.integration.spec.ts`: conversation/message idempotency, unread/read, stranger/owner denial, missing-key toggle và realtime publish.
-- `web/lib/chat.spec.ts`: event deduplicate, chronological order, peer/sender labels.
+- `web/lib/chat.spec.ts`: event deduplicate, chronological order, peer/sender labels và quy tắc Enter/Shift+Enter/IME của composer.
 - `web/lib/navigation.spec.ts`: `/messages` đúng role/surface.
 
 Manual happy path:
 
 1. Seed database, login `customer@example.com`, mở active product và click chat.
 2. Gửi message; reload `/messages`, message vẫn còn và không duplicate.
-3. Login vendor ở browser khác, mở `/vendor/messages`, thấy unread và trả lời; customer nhận realtime hoặc tối đa 5 giây qua polling.
-4. Với key backend hợp lệ, Vendor bật AI cho North Studio.
-5. Customer hỏi giá/tồn kho/sản phẩm khác shop; kiểm tra AI chỉ nêu catalog North Studio và link đúng.
-6. Tắt AI, gửi message mới; chỉ human vendor trả lời.
-7. Tắt mạng/provider hoặc dùng key sai; customer message vẫn lưu, AI chuyển FAILED và inbox tiếp tục dùng được.
+3. Dùng bộ gõ tiếng Việt nhập câu có dấu rồi nhấn Enter: Enter hoàn tất từ không được gửi sớm; Enter kế tiếp gửi đủ câu và textarea phải rỗng, không còn lại từ cuối. Lặp lại ở cả `/messages` và `/vendor/messages`; Shift+Enter phải xuống dòng.
+4. Login vendor ở browser khác, mở `/vendor/messages`, thấy unread và trả lời; customer nhận realtime hoặc tối đa 5 giây qua polling.
+5. Với key backend hợp lệ, Vendor bật AI cho North Studio.
+6. Customer hỏi giá/tồn kho/sản phẩm khác shop; kiểm tra AI chỉ nêu catalog North Studio và link đúng.
+7. Tắt AI, gửi message mới; chỉ human vendor trả lời.
+8. Tắt mạng/provider hoặc dùng key sai; customer message vẫn lưu, AI chuyển FAILED và inbox tiếp tục dùng được.
 
 ### 32.14 Các bước bắt buộc trước scale/public launch
 

@@ -226,6 +226,7 @@ Phase 6 shop live chat and AI:
 - Grounded each AI request in only the exact shop's ACTIVE products, current available stock and recent history; instructions reject invented commercial facts and prompt/secret disclosure.
 - Kept customer messages durable when AI generation fails and tracked `PENDING`, `COMPLETED` or `FAILED` on the source message.
 - Added migration `20260817111452_phase6_shop_chat_ai`, demo conversation seed, prompt/unit tests and PostgreSQL ownership/idempotency integration coverage.
+- Fixed the shared Customer/Vendor composer so Vietnamese IME completion Enter no longer sends prematurely or restores the last composed word after the draft reset; plain Enter and Shift+Enter retain their expected behavior.
 
 Phase 7 admin governance:
 
@@ -383,6 +384,7 @@ Verified:
 - Final API regression remained 23 suites/51 tests; Web regression is now 15 suites/43 tests; HTTP E2E remained 3 suites/4 tests. API/Web lint and both production builds passed; Web generated 26 routes including `/checkout`.
 - Local runtime smoke returned 200 for login, Cart API, Orders API, `/cart`, `/checkout?items=...` and `/orders`; selected quote returned one requested item and customer OrderItem response included its current product slug.
 - Phase 9 visual Browser click-through could not run because no connected browser instance was available after setup, troubleshooting lookup and retry; runtime HTTP, transaction coverage and production compilation are green.
+- Chat IME regression passed the complete Web suite at 15 suites/44 tests, Web lint and the 26-route webpack production build. Browser discovery had no connected instance after troubleshooting/retry, so direct Vietnamese composition click-through remains covered by the composition-state/key-code helper regression and should be repeated when a browser is attached.
 
 ## Current Risks / Gaps
 

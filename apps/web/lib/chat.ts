@@ -37,6 +37,20 @@ export type ShopAiSetting = {
   configured: boolean;
 };
 
+export type ChatComposerKeyEvent = {
+  key: string;
+  shiftKey: boolean;
+  isComposing: boolean;
+  keyCode?: number;
+};
+
+export function shouldSendChatMessageOnKeyDown(event: ChatComposerKeyEvent) {
+  return event.key === 'Enter'
+    && !event.shiftKey
+    && !event.isComposing
+    && event.keyCode !== 229;
+}
+
 export function mergeChatMessage(messages: ChatMessage[], incoming: ChatMessage) {
   const existingIndex = messages.findIndex((message) => message.id === incoming.id);
   if (existingIndex >= 0) {

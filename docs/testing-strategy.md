@@ -99,6 +99,7 @@ Shop chat and AI:
 - AI prompt contains only the supplied shop catalog, exact available stock and safe product links.
 - DeepSeek credential is sent only in the Authorization header and never serialized into the request body/client bundle.
 - Realtime merge deduplicates events and preserves chronological display order; polling remains a fallback.
+- Customer/Vendor composer sends on plain Enter, keeps Shift+Enter for new lines and never submits while a Vietnamese/IME composition is active, including the legacy `keyCode=229` path.
 
 Admin governance:
 

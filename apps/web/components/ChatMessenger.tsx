@@ -8,6 +8,7 @@ import {
   chatMessageLabel,
   chatPeerName,
   mergeChatMessage,
+  shouldSendChatMessageOnKeyDown,
   type ChatConversation,
   type ChatMessage,
   type ChatMode,
@@ -44,6 +45,7 @@ export function ChatMessenger({
   const socketRef = useRef<Socket | null>(null);
   const selectedIdRef = useRef('');
   const bottomRef = useRef<HTMLDivElement>(null);
+  const composingRef = useRef(false);
 
   const loadConversations = useCallback(async (preserveSelection = true) => {
     const data = await apiRequest<ChatConversation[]>(`/chat/conversations?view=${mode}`, {}, true);
@@ -159,7 +161,7 @@ export function ChatMessenger({
 
   async function sendMessage() {
     const content = draft.trim();
-    if (!selectedId || !content || sending) return;
+    if (!selectedId || !content || sending || composingRef.current) return;
     setSending(true);
     setError('');
     setDraft('');
@@ -266,7 +268,7 @@ export function ChatMessenger({
               </div>
               <div className="border-t border-[var(--line)] bg-white p-3">
                 {error ? <p className="mb-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{error}</p> : null}
-                <div className="flex items-end gap-2"><textarea className="max-h-28 min-h-11 flex-1 resize-none rounded-xl border border-[var(--line)] px-3 py-2.5 text-sm" value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void sendMessage(); } }} placeholder="Nhập tin nhắn…" maxLength={2000} rows={1} /><button type="button" className="button-primary !h-11 !w-11 !p-0" disabled={!draft.trim() || sending} onClick={() => void sendMessage()} aria-label="Gửi tin nhắn">{sending ? <LoaderCircle size={17} className="animate-spin" /> : <Send size={17} />}</button></div>
+                <div className="flex items-end gap-2"><textarea className="max-h-28 min-h-11 flex-1 resize-none rounded-xl border border-[var(--line)] px-3 py-2.5 text-sm" value={draft} onChange={(event) => setDraft(event.target.value)} onCompositionStart={() => { composingRef.current = true; }} onCompositionEnd={() => { composingRef.current = false; }} onKeyDown={(event) => { if (shouldSendChatMessageOnKeyDown({ key: event.key, shiftKey: event.shiftKey, isComposing: composingRef.current || event.nativeEvent.isComposing, keyCode: event.keyCode })) { event.preventDefault(); void sendMessage(); } }} placeholder="Nhập tin nhắn…" maxLength={2000} rows={1} /><button type="button" className="button-primary !h-11 !w-11 !p-0" disabled={!draft.trim() || sending} onClick={() => void sendMessage()} aria-label="Gửi tin nhắn">{sending ? <LoaderCircle size={17} className="animate-spin" /> : <Send size={17} />}</button></div>
               </div>
             </>
           ) : <ChatState icon={mode === 'SHOP' ? Store : UserRound} text="Chọn một hội thoại để bắt đầu." />}
