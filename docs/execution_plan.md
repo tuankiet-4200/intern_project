@@ -1,6 +1,6 @@
 # Execution Plan
 
-Last updated: 2026-08-18
+Last updated: 2026-08-19
 
 This is the implementation source of truth for the build-from-scratch commerce platform. Agents must read this file together with `docs/project_context.md` before editing.
 
@@ -431,6 +431,30 @@ Acceptance:
 - Repeated view/add requests cannot create unbounded interaction rows or unbounded score influence.
 - Product/detail, Cart, Wishlist and Checkout remain successful only when their own domain transaction succeeds.
 - Reset deletes only the current account's personalization data and falls back to trending products.
+
+## Phase 12 - Demo Catalog & Public Shop Storefront
+
+Status: complete.
+
+Done:
+
+- Added four approved demo Vendor accounts and shops with documented credentials.
+- Added a reviewed static CellphoneS snapshot containing exactly 20 phones, 20 tablets and 20 laptops.
+- Distributed the snapshot deterministically across four shops: five products per category and 15 snapshot products per shop.
+- Added an idempotent `seed:demo-catalog` command that upserts users, shops, categories, products and initial inventory without duplicating stock ledger entries.
+- Added an explicit `ALLOW_DEMO_CATALOG_SEED=true` production guard so demo data cannot be inserted accidentally.
+- Added public `GET /api/shops/public/:slug` storefront data with public-product visibility, shop-specific categories, search and pagination.
+- Added `/shops/[slug]` for customers and linked shop names from Home and Product Detail.
+- Added unit, service, Web routing and live PostgreSQL/API smoke coverage.
+- Added `docs/demo-vendor-accounts.docx` with credentials, distribution, deployment command and manual checks.
+
+Acceptance:
+
+- Re-running the seed does not duplicate users, shops, categories, products, inventory or initial-stock ledger entries.
+- Every demo shop receives exactly five CellphoneS snapshot products in each of the three categories.
+- A suspended/unapproved shop or inactive/out-of-stock product never appears in its public storefront.
+- Customer search/category filters are scoped to the selected shop and clearing search restores the full storefront.
+- Demo catalog insertion in production requires an explicit operator opt-in.
 
 ## Backlog
 

@@ -221,6 +221,16 @@ npx prisma migrate status
 
 Phải báo database up to date.
 
+### 7.2a Optional demo catalog seed
+
+Không chạy demo seed trong release mặc định. Chỉ khi target là demo/staging hoặc production environment đã được product owner phê duyệt chứa dữ liệu thử, operator dùng artifact cùng commit và opt-in rõ ràng:
+
+```bash
+NODE_ENV=production ALLOW_DEMO_CATALOG_SEED=true npm run seed:demo-catalog
+```
+
+Command upsert bốn Vendor, ba Category và 60 Product snapshot; chạy lại không cộng lại tồn kho hoặc tạo thêm initial-stock ledger. Ghi command/timestamp/operator vào release ticket. Không dùng dữ liệu này như feed giá/tồn kho thật; URL ảnh bên thứ ba phải được thay bằng asset đã duyệt trên storage/CDN do hệ thống sở hữu trước commercial rollout.
+
 ### 7.3 Deploy API
 
 1. Deploy new API instances với readiness chưa nhận traffic nếu platform hỗ trợ.

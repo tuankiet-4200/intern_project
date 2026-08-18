@@ -12,7 +12,8 @@
     "test": "npm run test --workspaces --if-present",
     "smoke:api": "node scripts/smoke-api.mjs",
     "load:smoke": "node scripts/load-smoke.mjs",
-    "drill:backup-restore": "sh scripts/backup-restore-drill.sh"
+    "drill:backup-restore": "sh scripts/backup-restore-drill.sh",
+    "seed:demo-catalog": "npm run prisma:seed:demo-catalog --workspace @intern-project/api"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

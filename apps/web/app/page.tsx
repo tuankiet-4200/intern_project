@@ -3,7 +3,7 @@
 import { AppShell } from '@/components/AppShell';
 import { apiRequest, formatVnd, getSession, subscribeSession } from '@/lib/api';
 import { setCartItemCount } from '@/lib/cart-indicator';
-import { productDetailPath } from '@/lib/product-detail';
+import { productDetailPath, shopStorefrontPath } from '@/lib/product-detail';
 import { recommendationExplanation, recommendationRequest } from '@/lib/recommendations';
 import { shouldResetSubmittedSearch } from '@/lib/search-filter';
 import { updateWishlistMembership, wishlistProductIdSet } from '@/lib/wishlist';
@@ -34,7 +34,7 @@ type Product = {
   slug: string;
   price: string;
   images: string[];
-  shop: { name: string };
+  shop: { name: string; slug: string };
   category: { id: number; name: string };
   inventory: { onHand: number; reserved: number };
 };
@@ -409,7 +409,7 @@ function ProductCard({
         {canWishlist ? <button type="button" className={`absolute right-4 top-4 z-20 flex h-10 w-10 items-center justify-center rounded-full border shadow-md backdrop-blur transition ${wished ? 'border-rose-200 bg-rose-50 text-rose-600' : 'border-white/70 bg-white/90 text-[#315248] hover:text-rose-600'}`} onClick={onWishlist} disabled={wishlistLoading} aria-label={wished ? `Bỏ ${product.name} khỏi yêu thích` : `Thêm ${product.name} vào yêu thích`} aria-pressed={wished}>{wishlistLoading ? <span className="loading-spinner !h-4 !w-4 !border-2" /> : <Heart size={19} fill={wished ? 'currentColor' : 'none'} />}</button> : null}
       </div>
       <div className="p-4">
-        <div className="flex items-center justify-between gap-2 text-xs font-semibold text-[var(--muted)]"><p className="flex min-w-0 items-center gap-1.5"><Store className="shrink-0" size={13} /><span className="truncate">{product.shop.name}</span></p><p className="flex shrink-0 items-center gap-1 text-emerald-700"><Boxes size={13} /> Kho: {available}</p></div>
+        <div className="flex items-center justify-between gap-2 text-xs font-semibold text-[var(--muted)]"><Link href={shopStorefrontPath(product.shop.slug)} className="relative z-20 flex min-w-0 items-center gap-1.5 transition hover:text-[var(--accent)]"><Store className="shrink-0" size={13} /><span className="truncate">{product.shop.name}</span></Link><p className="flex shrink-0 items-center gap-1 text-emerald-700"><Boxes size={13} /> Kho: {available}</p></div>
         <h3 className="mt-2 line-clamp-2 min-h-12 text-base font-extrabold leading-6"><Link href={productDetailPath(product.slug)} className="transition hover:text-[var(--accent)]">{product.name}</Link></h3>
         <div className="mt-4 flex items-center justify-between gap-3 border-t border-[var(--line)] pt-4">
           <span className="text-base font-black text-[var(--accent-strong)]">{formatVnd(product.price)}</span>

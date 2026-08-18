@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { AccountStatus, AdminActionType, NotificationType, Prisma, ShopStatus } from '@prisma/client';
+import { AccountStatus, AdminActionType, NotificationType, Prisma, ProductStatus, ShopStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { AdminShopQueryDto, CreateShopDto, ReviewShopDto } from './dto/shops.dto';
+import { AdminShopQueryDto, CreateShopDto, ReviewShopDto, ShopStorefrontQueryDto } from './dto/shops.dto';
 import { OutboxService } from '../notifications/outbox.service';
 
 const SHOP_STATUS_TRANSITIONS: Record<ShopStatus, ShopStatus[]> = {
@@ -24,6 +24,65 @@ export class ShopsService {
       orderBy: { createdAt: 'desc' },
       select: { id: true, name: true, slug: true, description: true, logoUrl: true, rating: true },
     });
+  }
+
+  async findPublicStorefront(slug: string, query: ShopStorefrontQueryDto) {
+    const shop = await this.prisma.shop.findFirst({
+      where: { slug, status: ShopStatus.APPROVED },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        description: true,
+        logoUrl: true,
+        rating: true,
+        createdAt: true,
+      },
+    });
+    if (!shop) throw new NotFoundException('Shop not found');
+
+    const search = query.search?.trim();
+    const publicProductWhere: Prisma.ProductWhereInput = {
+      shopId: shop.id,
+      status: ProductStatus.ACTIVE,
+      inventory: { is: { onHand: { gt: this.prisma.inventory.fields.reserved } } },
+    };
+    const filteredProductWhere: Prisma.ProductWhereInput = {
+      ...publicProductWhere,
+      ...(query.categoryId ? { categoryId: query.categoryId } : {}),
+      ...(search ? {
+        OR: [
+          { name: { contains: search, mode: 'insensitive' } },
+          { description: { contains: search, mode: 'insensitive' } },
+        ],
+      } : {}),
+    };
+
+    const [items, total, categories] = await this.prisma.$transaction([
+      this.prisma.product.findMany({
+        where: filteredProductWhere,
+        skip: (query.page - 1) * query.limit,
+        take: query.limit,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        include: {
+          shop: { select: { id: true, name: true, slug: true } },
+          category: { select: { id: true, name: true, slug: true } },
+          inventory: true,
+        },
+      }),
+      this.prisma.product.count({ where: filteredProductWhere }),
+      this.prisma.category.findMany({
+        where: { isActive: true, products: { some: publicProductWhere } },
+        orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+        select: { id: true, name: true, slug: true },
+      }),
+    ]);
+
+    return {
+      shop,
+      categories,
+      products: { items, total, page: query.page, limit: query.limit, totalPages: Math.ceil(total / query.limit) },
+    };
   }
 
   findReviewQueue() {

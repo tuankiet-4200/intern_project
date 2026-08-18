@@ -35,3 +35,17 @@ export function productDetailApiPath(routeParam: string) {
   }
   return `/products/${encodeURIComponent(slug)}`;
 }
+
+export function shopStorefrontPath(slug: string) {
+  return `/shops/${encodeURIComponent(slug)}`;
+}
+
+export function shopStorefrontApiPath(routeParam: string) {
+  let slug = routeParam;
+  try {
+    slug = decodeURIComponent(routeParam);
+  } catch {
+    // Keep malformed or already-decoded percent characters as literal slug content.
+  }
+  return `/shops/public/${encodeURIComponent(slug)}`;
+}

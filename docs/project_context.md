@@ -1,6 +1,6 @@
 # Project Context
 
-Last updated: 2026-08-18
+Last updated: 2026-08-19
 
 ## Project Identity
 
@@ -276,6 +276,16 @@ Phase 11 interaction-based product recommendations:
 - Added Home recommendation shelf, existing Cart/Wishlist actions and current-account personalization reset.
 - Added migration `20260818230000_phase9_product_recommendations`, ranking unit tests and PostgreSQL integration coverage.
 
+Phase 12 demo catalog and public shop storefront:
+
+- Added four approved demo Vendor accounts/shops and documented their credentials in `docs/demo-vendor-accounts.docx`.
+- Added a static 2026-08-19 CellphoneS reference snapshot: 20 phones, 20 tablets and 20 laptops with source URLs and remote image URLs.
+- Distributed those 60 products deterministically across the four demo shops, giving every shop five products in each category.
+- Added the idempotent `npm run seed:demo-catalog` workflow with production-only explicit opt-in and duplicate-safe initial inventory/ledger creation.
+- Added the public shop storefront API with approved-shop, active-product and positive-available-stock visibility enforcement, search, category filtering and pagination.
+- Added customer `/shops/[slug]` storefronts and linked seller names from Home and Product Detail.
+- Added fixture, service and Web route/helper coverage plus live database/API/login/distribution smoke tests.
+
 Governance/context:
 
 - Added `.agents/senior-tech-lead.rules.md`.
@@ -416,6 +426,11 @@ Verified:
 - Final Phase 11 regression passed: API 26 suites/61 tests, HTTP E2E 3 suites/5 tests and Web 17 suites/49 tests. API/Web lint, API build and the 27-route Web webpack production build passed; Prisma reports all 11 migrations up to date. Default Turbopack remained blocked by the environment's PostCSS process-port restriction.
 - Authenticated localhost smoke returned login 200, view tracking 201 and recommendation 200 with `personalized=true`, `reason=INTERACTIONS`; no access token was printed.
 - Phase 11 visual Browser click-through could not run because browser runtime discovery found no browser and its installed troubleshooting reference pointed to a removed plugin version; automated UI tests, production compilation and localhost API smoke are green.
+- Phase 12 demo fixture tests passed with exactly 60 unique products, 20 per category and 15 per Vendor.
+- The demo-catalog seed ran twice successfully against local PostgreSQL without duplicates; all four Vendor credentials returned HTTP 200 from login.
+- Public storefront runtime smoke returned HTTP 200 for all four shops. Each shop returned five phones, five tablets and five laptops from the new snapshot; North Studio also retained its three pre-existing products.
+- Final Phase 12 regression passed: API 27 suites/65 tests and Web 17 suites/50 tests. API/Web lint and both production builds passed; Web generated 27 routes including dynamic `/shops/[slug]`.
+- No connected browser instance was available for visual storefront click-through; route compilation, unit/service coverage and live localhost API smoke are green. The credential DOCX passed OOXML archive/accessibility checks and a macOS Quick Look visual preview; canonical LibreOffice rendering was unavailable because `soffice` is not installed.
 
 ## Current Risks / Gaps
 
@@ -442,10 +457,11 @@ Verified:
 - `GET /wishlist/product-ids` intentionally returns a compact full ID set for instant heart state; if individual wishlists grow to thousands of products, replace it with bounded membership checks or page-level authenticated projection.
 - Checkout selection is encoded in the URL for reload/share-safe navigation and capped at 99 UUIDs (about 4 KB worst case). Production proxies must permit that request-target size; a future very-large-cart design should use a short-lived server-side checkout session instead.
 - Recommendation ranking is an explainable in-request heuristic capped at 100 interaction aggregates and 80 candidates. Before large-catalog rollout, add offline retrieval/cache, exposure metrics, diversity/fairness guardrails and a reviewed privacy/retention policy rather than increasing query limits indefinitely.
+- Demo product prices are a dated test snapshot and are not synchronized with CellphoneS. Remote image hotlinks may expire and require source/licensing review; production should copy approved assets into owned object storage/CDN instead of depending on third-party URLs.
 
 ## Next Recommended Step
 
-The agreed application baseline, including shop chat, catalog-grounded AI, Admin governance, Wishlist, selective dedicated Checkout and interaction-based recommendations, is complete. Remaining follow-up depends on external choices/access or scale requirements:
+The agreed application baseline, including shop chat, catalog-grounded AI, Admin governance, Wishlist, selective dedicated Checkout, recommendations and public demo shop storefronts, is complete. Remaining follow-up depends on external choices/access or scale requirements:
 
 1. Configure a SePay sandbox merchant, `SEPAY_*` secrets, public HTTPS `/api/payments/webhooks/sepay` IPN URL and run a real payment certification.
 2. Define the operational/provider contract for SePay refunds before implementing automated outbound money movement.
@@ -453,3 +469,4 @@ The agreed application baseline, including shop chat, catalog-grounded AI, Admin
 4. Add Redis Socket.IO fan-out and a durable AI job worker before multi-replica production rollout.
 5. Configure staging environment secrets/URLs and execute the supplied staging/backup/restore/load/rollback workflows on real infrastructure.
 6. Collect recommendation exposure/conversion metrics and define an A/B/privacy policy before considering collaborative or ML ranking.
+7. Before using demo catalog data beyond testing, replace remote image hotlinks with reviewed assets in owned storage and establish an authorized product-feed/update policy.

@@ -4,6 +4,8 @@ Tai lieu giai thich kien truc va tung luong code cho developer moi: [`codebase-h
 
 Runbook production, migration, smoke test va incident response: [`production-runbook.md`](./production-runbook.md).
 
+Tài khoản bốn Vendor demo và bảng phân bổ catalog: [`demo-vendor-accounts.docx`](./demo-vendor-accounts.docx).
+
 ## Yeu cau
 
 - Node.js 20+
@@ -76,6 +78,20 @@ Tai khoan demo sau khi seed (mat khau chung `password123`):
 - `admin@example.com`
 - `vendor@example.com`
 - `customer@example.com`
+
+Để thêm snapshot 60 sản phẩm CellphoneS, ba danh mục và bốn shop Vendor demo, chạy lệnh idempotent sau (có thể chạy lại mà không cộng tồn kho):
+
+```bash
+npm run seed:demo-catalog
+```
+
+Trên production, script chủ động từ chối chạy nếu operator chưa xác nhận rõ:
+
+```bash
+NODE_ENV=production ALLOW_DEMO_CATALOG_SEED=true npm run seed:demo-catalog
+```
+
+Đây là dữ liệu demo snapshot, không phải đồng bộ giá/tồn kho trực tiếp với CellphoneS. Xem username/password và lưu ý vận hành trong file DOCX phía trên.
 
 ## 5. Chay backend va frontend
 

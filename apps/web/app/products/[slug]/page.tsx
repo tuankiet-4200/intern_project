@@ -11,6 +11,7 @@ import {
   productAttributes,
   productDetailApiPath,
   productDetailPath,
+  shopStorefrontPath,
 } from '@/lib/product-detail';
 import {
   ArrowLeft,
@@ -239,7 +240,7 @@ export default function ProductDetailPage() {
             {discount > 0 && product.compareAtPrice ? <span className="text-base text-[var(--muted)] line-through">{formatVnd(product.compareAtPrice)}</span> : null}
           </div>
 
-          <Link href="#shop" className="mt-6 flex items-center gap-3 rounded-2xl border border-[var(--line)] bg-white p-4 transition hover:border-[#b6ccc2]">
+          <Link href={shopStorefrontPath(product.shop.slug)} className="mt-6 flex items-center gap-3 rounded-2xl border border-[var(--line)] bg-white p-4 transition hover:border-[#b6ccc2]">
             <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#123b31] text-emerald-300"><Store size={22} /></span>
             <span className="min-w-0"><span className="block text-xs font-semibold text-[var(--muted)]">Được bán bởi</span><span className="mt-0.5 block truncate font-extrabold">{product.shop.name}</span></span>
             <span className="ml-auto flex items-center gap-1 text-xs font-bold text-emerald-700"><ShieldCheck size={15} /> Đã duyệt</span>
@@ -285,7 +286,8 @@ export default function ProductDetailPage() {
         <aside id="shop" className="surface-card h-fit scroll-mt-28 p-6 lg:sticky lg:top-24">
           <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#123b31] text-emerald-300"><Store size={22} /></span><p className="mt-5 text-xs font-bold uppercase tracking-[0.12em] text-[var(--muted)]">Gian hàng</p><h2 className="mt-1 text-xl font-black">{product.shop.name}</h2><p className="mt-3 text-sm leading-6 text-[var(--muted)]">Cửa hàng đã được Admin kiểm duyệt và đang hoạt động trên Intern Market.</p>
           <div className="mt-5 grid gap-3 border-t border-[var(--line)] pt-5"><p className="flex items-center gap-2 text-sm font-semibold"><ShieldCheck className="text-emerald-600" size={17} /> Trạng thái APPROVED</p><p className="flex items-center gap-2 text-sm font-semibold"><PackageCheck className="text-emerald-600" size={17} /> Tồn kho được kiểm tra thật</p></div>
-          {session?.user.role !== 'ADMIN' ? <button type="button" className="button-soft mt-5 w-full" onClick={startShopChat}><MessageCircle size={17} /> Nhắn tin cho shop</button> : null}
+          <Link href={shopStorefrontPath(product.shop.slug)} className="button-ghost mt-5 w-full"><Store size={17} /> Xem gian hàng</Link>
+          {session?.user.role !== 'ADMIN' ? <button type="button" className="button-soft mt-2 w-full" onClick={startShopChat}><MessageCircle size={17} /> Nhắn tin cho shop</button> : null}
         </aside>
       </section>
 

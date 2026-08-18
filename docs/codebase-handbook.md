@@ -3016,3 +3016,136 @@ Heuristic hiện phù hợp catalog vừa/nhỏ và dễ audit. Khi catalog lớ
 - cache theo user/version và invalidation khi catalog/inventory đổi.
 
 Chỉ chuyển sang ML khi có đủ dữ liệu, baseline metric và quy trình privacy/model evaluation; không gọi một LLM để quyết định ranking thương mại trực tiếp.
+
+## 34. Demo Catalog CellphoneS và Public Shop Storefront
+
+Phần này phục vụ hai nhu cầu phát triển: tạo nhanh một catalog đủ lớn để manual test và cho khách hàng xem riêng danh mục/sản phẩm của từng nhà bán. Đây là dữ liệu snapshot tĩnh phục vụ demo, không phải crawler chạy theo request và không phải luồng đồng bộ thương mại với CellphoneS.
+
+### 34.1 Các file và trách nhiệm
+
+- `apps/api/src/common/demo-catalog-data.ts`: source of truth tĩnh cho tài khoản demo, ba danh mục và 60 sản phẩm tham khảo.
+- `apps/api/prisma/seed-demo-catalog.ts`: orchestration upsert vào PostgreSQL và tạo tồn kho ban đầu an toàn khi chạy lại.
+- `apps/api/src/modules/shops/dto/shops.dto.ts`: validate search, category, page và limit của storefront.
+- `apps/api/src/modules/shops/shops.controller.ts`: public route `GET /api/shops/public/:slug`.
+- `apps/api/src/modules/shops/shops.service.ts`: visibility, filter, pagination và response projection.
+- `apps/web/app/shops/[slug]/page.tsx`: trang gian hàng cho khách hàng.
+- `apps/web/lib/product-detail.ts`: builder URL API/UI để không tự ghép hoặc encode slug khác nhau ở nhiều nơi.
+- `docs/demo-vendor-accounts.docx`: tài khoản, mật khẩu, phân bổ và lệnh vận hành dành cho tester/operator.
+
+### 34.2 Vì sao dùng snapshot thay vì scrape lúc seed
+
+Seed production phải deterministic và review được. Gọi HTML/API bên thứ ba trong lúc deploy có thể thất bại do mạng, rate limit, thay đổi markup, chống bot hoặc dữ liệu giá thay đổi giữa hai lần chạy. Vì vậy danh sách đã được chụp ngày 2026-08-19 và lưu rõ:
+
+- tên sản phẩm;
+- giá bán và giá so sánh nếu có;
+- URL trang nguồn;
+- URL ảnh HTTPS;
+- ngày snapshot và cảnh báo không đồng bộ tự động.
+
+Description là nội dung demo trung tính do dự án tự viết, không sao chép mô tả thương mại dài. Ảnh hiện tham chiếu CDN bên thứ ba để manual test nhanh; production thật phải kiểm tra quyền sử dụng và chuyển asset đã duyệt sang object storage/CDN do hệ thống quản lý.
+
+### 34.3 Quy tắc phân bổ
+
+Fixture có đúng ba category slug:
+
+```text
+dien-thoai      20 sản phẩm
+may-tinh-bang   20 sản phẩm
+laptop          20 sản phẩm
+```
+
+Với mỗi danh mục, product tại vị trí `index` được gán cho Vendor tại `index % 4`. Vì mỗi danh mục có 20 phần tử và có bốn Vendor, mỗi shop nhận đúng năm sản phẩm của từng danh mục, tức 15 sản phẩm snapshot/shop. Thuật toán chạy riêng từng danh mục nên không có trường hợp một shop nhận đủ tổng số nhưng lệch cơ cấu category.
+
+North Studio đã tồn tại trước tính năng này và có ba sản phẩm cũ; sau seed storefront của shop đó hiện 18 sản phẩm. Con số “15/shop” chỉ nói về 60 sản phẩm snapshot mới.
+
+### 34.4 Luồng seed idempotent
+
+Chạy local/staging:
+
+```bash
+npm run seed:demo-catalog
+```
+
+Chạy production phải opt-in rõ ràng:
+
+```bash
+NODE_ENV=production ALLOW_DEMO_CATALOG_SEED=true npm run seed:demo-catalog
+```
+
+Script thực hiện theo thứ tự:
+
+1. Chặn ngay nếu đang ở production mà thiếu `ALLOW_DEMO_CATALOG_SEED=true`.
+2. Hash mật khẩu fixture bằng bcrypt rồi upsert User theo email; role là VENDOR và account active.
+3. Upsert Shop theo slug, gắn đúng owner, đặt trạng thái APPROVED.
+4. Upsert ba Category theo slug và đặt active.
+5. Upsert Product theo slug có prefix `demo-cps-`, cập nhật merchandising/source nhưng giữ một record ổn định.
+6. Nếu Product chưa có Inventory, tạo Inventory và một `INITIAL_STOCK` ledger row trong cùng nested write.
+7. Nếu Inventory đã tồn tại, không cộng stock và không tạo ledger lần hai.
+
+Điểm 6–7 là invariant quan trọng: dùng `inventory.upsert` với update rỗng không đủ an toàn nếu sau này ai đó vô tình thêm increment. Code hiện chủ động kiểm tra tồn tại và chỉ tạo initial ledger ở nhánh chưa có inventory. Vì vậy chạy seed nhiều lần không làm phình tồn kho.
+
+Script này cố ý không xóa sản phẩm không còn trong fixture. Xóa tự động có thể phá Cart, Wishlist, OrderItem hoặc interaction lịch sử. Nếu cần retire một demo product, dùng transition/archive nghiệp vụ và migration/cleanup được review riêng.
+
+### 34.5 Luồng public storefront backend
+
+Request ví dụ:
+
+```http
+GET /api/shops/public/mobile-hub?search=iphone&categoryId=234&page=1&limit=12
+```
+
+Controller để route public, nhưng DTO vẫn validate toàn bộ query. Service thực hiện:
+
+1. Tìm Shop theo slug và bắt buộc `status = APPROVED`; không tồn tại/không approved trả 404 để không lộ storefront bị đình chỉ.
+2. Tạo visibility predicate dùng chung: `Product.status = ACTIVE` và `Inventory.onHand > Inventory.reserved`.
+3. Query category list từ chính các public Product của shop, không trả category rỗng hoặc category chỉ có draft/out-of-stock.
+4. Bổ sung search không phân biệt hoa thường trên name/description và categoryId nếu client chọn.
+5. Chạy `findMany` và `count` với cùng predicate; sort ổn định rồi trả page metadata.
+6. Trả Product kèm Shop, Category và Inventory để Web tính stock/giá/card mà không cần N+1 request.
+
+Không dùng endpoint Vendor product list cho storefront vì endpoint đó có ownership/RBAC và phải hiển thị cả DRAFT/ARCHIVED cho người bán. Public projection phải giữ đúng catalog visibility rule của toàn hệ thống.
+
+### 34.6 Luồng storefront frontend
+
+Route `/shops/[slug]` dùng `shopStorefrontApiPath` để encode slug đúng một lần. Trang tải dữ liệu theo submitted search/category/page, sau đó render:
+
+- banner, tên, mô tả, đánh giá và dấu gian hàng được duyệt;
+- search chỉ trong shop;
+- category chips chỉ gồm category đang có sản phẩm public;
+- Product card có ảnh fallback, stock khả dụng, giá/giá gạch/discount;
+- link canonical `/products/[slug]` và pagination.
+
+Shop name trên Home và seller card ở Product Detail đều link tới route này. Khi user xóa toàn bộ text search, helper `shouldResetSubmittedSearch` đưa submitted search về rỗng ngay, reset page và gọi lại danh sách đầy đủ; không bắt user bấm “Tìm kiếm” lần nữa.
+
+Route `/shops/*` nằm trong public route policy, nên khách chưa đăng nhập xem được. Mọi quyết định visibility vẫn do API áp đặt; frontend public route không được coi là lớp bảo mật.
+
+### 34.7 Failure cases và cách debug
+
+- Storefront 404: kiểm tra shop slug và trạng thái APPROVED.
+- Shop có sản phẩm trong Vendor workspace nhưng public page rỗng: kiểm tra Product ACTIVE, Inventory tồn tại và `onHand - reserved > 0`.
+- Category không hiện: category phải active và phải có ít nhất một product vượt public visibility predicate của shop.
+- Ảnh lỗi: remote CDN URL có thể đổi/chặn hotlink; Product Detail/card phải dùng fallback, không làm hỏng layout.
+- Seed bị chặn trên production: đây là hành vi đúng; operator phải review scope rồi thêm biến opt-in trong đúng một lần chạy.
+- Seed chạy lại nhưng giá/tên đổi: upsert cập nhật snapshot merchandising theo fixture; stock không tăng lại.
+- North Studio có nhiều hơn 15 item: cộng thêm ba product cũ có sẵn; dùng slug prefix `demo-cps-` nếu cần audit riêng snapshot.
+
+### 34.8 Automated và manual test
+
+Automated coverage:
+
+- `demo-catalog-data.spec.ts`: đúng 60/20/15/5, slug duy nhất, URL nguồn/ảnh và giá hợp lệ.
+- `shops.service.spec.ts`: approved/public/in-stock predicate, category projection và query pagination.
+- `product-detail.spec.ts`: shop UI/API path encode đúng.
+- `navigation.spec.ts`: storefront là public route.
+- API/Web full regression, lint và production build bảo đảm route mới không phá các flow cũ.
+
+Manual smoke đề xuất:
+
+1. Chạy seed hai lần và xác nhận output đều thành công, số Product/Inventory không tăng ở lần hai.
+2. Login cả bốn tài khoản trong DOCX.
+3. Mở `/shops/north-studio`, `/shops/mobile-hub`, `/shops/tech-house`, `/shops/digital-corner`.
+4. Ở mỗi shop, chọn lần lượt Điện thoại/Máy tính bảng/Laptop; mỗi category có năm sản phẩm snapshot.
+5. Search một từ có kết quả, xóa sạch ô search và xác nhận toàn bộ sản phẩm quay lại ngay.
+6. Click product card sang Product Detail, rồi click “Xem gian hàng” quay lại đúng shop.
+7. Chuyển một Product thành DRAFT, stock available về 0 hoặc suspend Shop; reload và xác nhận dữ liệu không còn public.
+8. Chạy production command thiếu opt-in trong môi trường thử nghiệm; script phải fail trước khi ghi database.

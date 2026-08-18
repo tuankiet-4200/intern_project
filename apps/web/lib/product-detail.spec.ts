@@ -6,6 +6,8 @@ import {
   productAttributes,
   productDetailApiPath,
   productDetailPath,
+  shopStorefrontApiPath,
+  shopStorefrontPath,
 } from './product-detail';
 
 describe('product detail helpers', () => {
@@ -48,5 +50,13 @@ describe('product detail helpers', () => {
 
   it('treats malformed percent characters as literal slug content', () => {
     expect(productDetailApiPath('save-50%-today')).toBe('/products/save-50%25-today');
+  });
+
+  it('keeps public shop slugs single-encoded across links and API requests', () => {
+    const slug = 'cửa hàng số 1';
+    const encoded = 'c%E1%BB%ADa%20h%C3%A0ng%20s%E1%BB%91%201';
+
+    expect(shopStorefrontPath(slug)).toBe(`/shops/${encoded}`);
+    expect(shopStorefrontApiPath(encoded)).toBe(`/shops/public/${encoded}`);
   });
 });

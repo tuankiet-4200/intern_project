@@ -1,10 +1,10 @@
-import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
-import { CreateShopDto, ReviewShopDto } from './dto/shops.dto';
+import { CreateShopDto, ReviewShopDto, ShopStorefrontQueryDto } from './dto/shops.dto';
 import { ShopsService } from './shops.service';
 
 @Controller('shops')
@@ -14,6 +14,11 @@ export class ShopsController {
   @Get()
   findPublic() {
     return this.shops.findPublic();
+  }
+
+  @Get('public/:slug')
+  findPublicStorefront(@Param('slug') slug: string, @Query() query: ShopStorefrontQueryDto) {
+    return this.shops.findPublicStorefront(slug, query);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)

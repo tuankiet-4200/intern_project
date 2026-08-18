@@ -1,9 +1,37 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
-import { AccountStatus, ShopStatus } from '@prisma/client';
+import { AccountStatus, ProductStatus, ShopStatus } from '@prisma/client';
 import { describe, expect, it, jest } from '@jest/globals';
 import { ShopsService } from './shops.service';
 
 describe('ShopsService', () => {
+  it('returns only public in-stock products and categories for an approved storefront', async () => {
+    const reservedField = { _ref: 'reserved' };
+    const prisma = {
+      inventory: { fields: { reserved: reservedField } },
+      shop: { findFirst: jest.fn<() => Promise<object>>().mockResolvedValue({ id: 'shop-1', slug: 'north-studio' }) },
+      product: {
+        findMany: jest.fn<(args: unknown) => Promise<never[]>>().mockResolvedValue([]),
+        count: jest.fn<(args: unknown) => Promise<number>>().mockResolvedValue(0),
+      },
+      category: { findMany: jest.fn<(args: unknown) => Promise<never[]>>().mockResolvedValue([]) },
+      $transaction: jest.fn(async (promises: Promise<unknown>[]) => Promise.all(promises)),
+    };
+    const service = new ShopsService(prisma as never);
+
+    await service.findPublicStorefront('north-studio', { page: 1, limit: 20 });
+
+    expect(prisma.product.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        shopId: 'shop-1',
+        status: ProductStatus.ACTIVE,
+        inventory: { is: { onHand: { gt: reservedField } } },
+      },
+    }));
+    expect(prisma.category.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ products: { some: expect.objectContaining({ shopId: 'shop-1' }) } }),
+    }));
+  });
+
   it('rejects access to another vendor shop', async () => {
     const prisma = {
       shop: {

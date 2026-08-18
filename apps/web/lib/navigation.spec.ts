@@ -27,6 +27,7 @@ describe('role-aware navigation', () => {
 
   it('protects role workspaces and resolves their landing pages', () => {
     expect(canAccessPath('/products/modular-desk-lamp')).toBe(true);
+    expect(canAccessPath('/shops/north-studio')).toBe(true);
     expect(canAccessPath('/admin/shops', 'VENDOR')).toBe(false);
     expect(canAccessPath('/admin/shops', 'ADMIN')).toBe(true);
     expect(canAccessPath('/vendor/orders', 'VENDOR')).toBe(true);
