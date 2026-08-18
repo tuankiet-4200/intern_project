@@ -1801,7 +1801,7 @@ Frontend route gate có unit test tại `lib/navigation.spec.ts` cho menu theo r
 ### 22.4 `/`
 
 - Public load song song `/products?limit=24` và `/categories`.
-- Search/category submit gọi lại `/products` bằng query `search` và `categoryId`; backend vẫn lọc product ACTIVE, approved shop và available stock.
+- Search input và từ khóa đã submit là hai state riêng. Submit gọi lại `/products` bằng query `search` và `categoryId`; khi input bị xóa trắng, frontend gỡ ngay submitted search và tải lại catalog không có query `search`, không yêu cầu bấm Tìm lần nữa. Đổi category dùng submitted search chứ không vô tình áp text mới đang gõ. Backend vẫn lọc product ACTIVE, approved shop và available stock.
 - Tính `available = onHand - reserved` để display và khóa nút khi hết hàng.
 - Add to cart gọi protected `/cart/items`, nhận cart mới và cập nhật badge header ngay.
 - Nếu chưa login, helper trả lỗi yêu cầu sign in và UI hiển thị link login; success/error không làm mất catalog đang có.
@@ -1915,6 +1915,7 @@ Integration test catalog kiểm tra create/update mọi merchandising field, own
 ### 22.11 `/admin/shops`
 
 - Load `/admin/shops` theo trang, từ khóa và status; không chỉ lấy pending queue.
+- `searchInput` giữ text đang gõ còn `search` giữ filter đã áp dụng. Xóa trắng input đang có filter sẽ đặt page về 1, gỡ `search`; effect tự tải lại toàn bộ shop theo các filter status còn lại.
 - Mỗi card hiển thị owner, trạng thái account, số product/order/chat, AI flag và các action hợp lệ từ trạng thái hiện tại.
 - Detail panel tải riêng owner, thống kê, inventory tóm tắt và audit history để list payload vẫn gọn.
 - Approve/reject/suspend/restore đều đi qua confirmation dialog; reject/suspend buộc nhập lý do tối thiểu năm ký tự.
@@ -1923,6 +1924,7 @@ Integration test catalog kiểm tra create/update mọi merchandising field, own
 ### 22.12 `/admin/users`
 
 - Search tên/email/phone; filter role và account status; paginate 20 row.
+- Xóa trắng search input đang được áp dụng sẽ đặt page về 1 và tự tải lại mọi user theo role/status còn lại, không cần submit thêm lần nữa.
 - Hiển thị safe identity fields, role, số shop/order/review; current Admin được đánh dấu và không có nút tự khóa.
 - Detail panel tải shop sở hữu, thống kê và audit history khi người vận hành yêu cầu.
 - Ban dùng dialog bắt buộc lý do; mở khóa vẫn xác nhận và giải thích shop không tự khôi phục.

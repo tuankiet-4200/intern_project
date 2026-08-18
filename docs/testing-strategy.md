@@ -130,6 +130,7 @@ Frontend:
 - Address map search renders no nested `<form>` and its search control is an explicit non-submitting button, preventing Cart/Profile reload on search.
 - Geocoding proxy builders trim/bound search input, force Vietnam/Vietnamese upstream parameters and reject invalid coordinate ranges before any upstream request.
 - Async create forms retain the submitted form reference across `await`, reset only after API success and preserve entered values after rejection.
+- Submitted-search reset detects empty/whitespace-only input only when a non-empty filter is active, so clearing restores the full filtered list immediately without reload loops while typing.
 
 Operations:
 

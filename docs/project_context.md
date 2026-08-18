@@ -1,6 +1,6 @@
 # Project Context
 
-Last updated: 2026-08-17
+Last updated: 2026-08-18
 
 ## Project Identity
 
@@ -235,6 +235,7 @@ Phase 7 admin governance:
 - Added durable `AdminAuditLog` records for all user/shop status changes.
 - Added `/admin/users` and rebuilt `/admin/shops` with Vietnamese filters, detail/audit panels and guarded confirmation dialogs.
 - Added migration `20260817115846_phase7_admin_governance` plus JWT, helper and PostgreSQL governance coverage.
+- Fixed submitted-search clearing across Marketplace, Admin users and Admin shops: deleting the last character now removes the active search immediately and restores the complete list under any remaining category/role/status filters.
 
 Governance/context:
 
@@ -354,6 +355,7 @@ Verified:
 - Phase 7 Web regression passed: 12 suites, 36 tests; Web lint passed without warnings and webpack production build generated 24 routes including `/admin/users` and `/admin/shops`.
 - Phase 7 HTTP E2E regression passed: 3 suites, 4 tests. Local runtime returned 200 for both Admin pages and for paginated Admin user/shop APIs; the same endpoints returned 403 to the demo customer.
 - Phase 7 visual Browser click-through could not run because no connected browser instance was available after connection retry; route compilation, runtime HTTP smoke and automated API/Web tests remain green.
+- Search-clear regression passed Web lint, 13 suites/38 tests and the 24-route webpack production build. Browser discovery again found no connected instance, so interaction QA is covered by the shared state-transition test and compiled page handlers in this session.
 
 ## Current Risks / Gaps
 

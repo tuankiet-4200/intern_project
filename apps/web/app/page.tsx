@@ -4,6 +4,7 @@ import { AppShell } from '@/components/AppShell';
 import { apiRequest, formatVnd } from '@/lib/api';
 import { setCartItemCount } from '@/lib/cart-indicator';
 import { productDetailPath } from '@/lib/product-detail';
+import { shouldResetSubmittedSearch } from '@/lib/search-filter';
 import {
   Check,
   PackageSearch,
@@ -37,6 +38,7 @@ type Product = {
 export default function Home() {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [activeCategory, setActiveCategory] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
@@ -70,7 +72,17 @@ export default function Home() {
 
   function submitSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    void loadProducts(search, activeCategory);
+    const submittedSearch = searchInput.trim();
+    setSearch(submittedSearch);
+    void loadProducts(submittedSearch, activeCategory);
+  }
+
+  function changeSearchInput(nextInput: string) {
+    setSearchInput(nextInput);
+    if (shouldResetSubmittedSearch(nextInput, search)) {
+      setSearch('');
+      void loadProducts('', activeCategory);
+    }
   }
 
   function chooseCategory(categoryId: number | null) {
@@ -119,8 +131,8 @@ export default function Home() {
               <Search className="shrink-0 text-[var(--muted)]" size={19} />
               <input
                 className="h-11 min-w-0 flex-1 border-0 bg-transparent px-1 shadow-none focus:shadow-none"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
+                value={searchInput}
+                onChange={(event) => changeSearchInput(event.target.value)}
                 placeholder="Tìm sản phẩm bạn cần…"
                 aria-label="Tìm kiếm sản phẩm"
               />
@@ -184,7 +196,7 @@ export default function Home() {
           <div className="surface-card mt-5 p-8 text-center"><PackageSearch className="mx-auto text-red-500" size={30} /><h3 className="mt-3 font-bold">Chưa thể tải sản phẩm</h3><p className="mt-1 text-sm text-[var(--muted)]">{loadError}</p><button className="button-ghost mt-4" onClick={() => void loadProducts(search, activeCategory)}>Thử lại</button></div>
         ) : null}
         {!loading && !loadError && products.length === 0 ? (
-          <div className="surface-card mt-5 p-10 text-center"><PackageSearch className="mx-auto text-[var(--accent)]" size={34} /><h3 className="mt-4 text-lg font-bold">Chưa tìm thấy sản phẩm phù hợp</h3><p className="mt-1 text-sm text-[var(--muted)]">Hãy thử từ khóa hoặc danh mục khác.</p><button className="button-soft mt-4" onClick={() => { setSearch(''); chooseCategory(null); }}>Xóa bộ lọc</button></div>
+          <div className="surface-card mt-5 p-10 text-center"><PackageSearch className="mx-auto text-[var(--accent)]" size={34} /><h3 className="mt-4 text-lg font-bold">Chưa tìm thấy sản phẩm phù hợp</h3><p className="mt-1 text-sm text-[var(--muted)]">Hãy thử từ khóa hoặc danh mục khác.</p><button className="button-soft mt-4" onClick={() => { setSearchInput(''); setSearch(''); setActiveCategory(null); void loadProducts('', null); }}>Xóa bộ lọc</button></div>
         ) : null}
 
         {!loading && !loadError && products.length > 0 ? (

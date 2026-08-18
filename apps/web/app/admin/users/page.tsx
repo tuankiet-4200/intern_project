@@ -6,6 +6,7 @@ import { AdminActionDialog } from '@/components/AdminActionDialog';
 import { AppShell } from '@/components/AppShell';
 import { SelectMenu } from '@/components/SelectMenu';
 import { apiRequest, getSession, subscribeSession } from '@/lib/api';
+import { shouldResetSubmittedSearch } from '@/lib/search-filter';
 import {
   ACCOUNT_STATUS_LABELS,
   governanceStatusLabel,
@@ -90,6 +91,14 @@ export default function AdminUsersPage() {
     setSearch(searchInput.trim());
   }
 
+  function changeSearchInput(nextInput: string) {
+    setSearchInput(nextInput);
+    if (shouldResetSubmittedSearch(nextInput, search)) {
+      setPage(1);
+      setSearch('');
+    }
+  }
+
   async function viewDetail(userId: string) {
     setDetailLoading(true);
     setError('');
@@ -131,7 +140,7 @@ export default function AdminUsersPage() {
         </div>
 
         <div className="surface-card mt-6 grid gap-3 p-4 lg:grid-cols-[minmax(260px,1fr)_220px_220px]">
-          <form className="flex items-end gap-2" onSubmit={submitSearch}><label className="grid flex-1 gap-1.5 text-sm font-semibold">Tìm kiếm<input className="h-12 rounded-xl border border-[var(--line)] px-3.5 font-normal" value={searchInput} onChange={(event) => setSearchInput(event.target.value)} maxLength={100} placeholder="Tên, email hoặc số điện thoại" /></label><button type="submit" className="button-primary !h-12"><Search size={16} /><span className="hidden sm:inline">Tìm</span></button></form>
+          <form className="flex items-end gap-2" onSubmit={submitSearch}><label className="grid flex-1 gap-1.5 text-sm font-semibold">Tìm kiếm<input className="h-12 rounded-xl border border-[var(--line)] px-3.5 font-normal" value={searchInput} onChange={(event) => changeSearchInput(event.target.value)} maxLength={100} placeholder="Tên, email hoặc số điện thoại" /></label><button type="submit" className="button-primary !h-12"><Search size={16} /><span className="hidden sm:inline">Tìm</span></button></form>
           <SelectMenu label="Vai trò" value={role} options={[...ROLE_OPTIONS]} onChange={(value) => { setRole(value); setPage(1); }} />
           <SelectMenu label="Trạng thái" value={status} options={[...STATUS_OPTIONS]} onChange={(value) => { setStatus(value); setPage(1); }} />
         </div>

@@ -17,6 +17,7 @@ import { AdminActionDialog } from '@/components/AdminActionDialog';
 import { AppShell } from '@/components/AppShell';
 import { SelectMenu } from '@/components/SelectMenu';
 import { apiRequest } from '@/lib/api';
+import { shouldResetSubmittedSearch } from '@/lib/search-filter';
 import {
   ACCOUNT_STATUS_LABELS,
   governanceStatusLabel,
@@ -121,6 +122,14 @@ export default function AdminShopsPage() {
     setSearch(searchInput.trim());
   }
 
+  function changeSearchInput(nextInput: string) {
+    setSearchInput(nextInput);
+    if (shouldResetSubmittedSearch(nextInput, search)) {
+      setPage(1);
+      setSearch('');
+    }
+  }
+
   async function viewDetail(shopId: string) {
     setDetailLoading(true);
     setError('');
@@ -171,7 +180,7 @@ export default function AdminShopsPage() {
           <form className="flex items-end gap-2" onSubmit={submitSearch}>
             <label className="grid flex-1 gap-1.5 text-sm font-semibold">
               Tìm kiếm
-              <input className="h-12 rounded-xl border border-[var(--line)] px-3.5 font-normal" value={searchInput} onChange={(event) => setSearchInput(event.target.value)} maxLength={100} placeholder="Tên shop, slug hoặc chủ cửa hàng" />
+              <input className="h-12 rounded-xl border border-[var(--line)] px-3.5 font-normal" value={searchInput} onChange={(event) => changeSearchInput(event.target.value)} maxLength={100} placeholder="Tên shop, slug hoặc chủ cửa hàng" />
             </label>
             <button type="submit" className="button-primary !h-12"><Search size={16} /><span className="hidden sm:inline">Tìm</span></button>
           </form>
