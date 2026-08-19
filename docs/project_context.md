@@ -306,6 +306,14 @@ Demo shipping adjustment:
 - Updated Checkout integration/E2E totals; production must also set
   `SHIPPING_FEE_PER_SHOP=2000` because runtime environment values override the fallback.
 
+SePay Production IPN compatibility fix:
+
+- Accepted the documented nullable top-level `agreement` field without weakening the global
+  unknown-field rejection policy.
+- Updated the HTTP E2E fixture so Production-shaped bank-transfer IPNs containing
+  `customer=null` and `agreement=null` reach secret verification and settlement instead of
+  failing DTO validation with `property agreement should not exist`.
+
 Governance/context:
 
 - Added `.agents/senior-tech-lead.rules.md`.
@@ -462,6 +470,7 @@ Verified:
 - Coupon data migration applied locally; running the demo seed twice remained idempotent. Database verification shows inactive historical `WELCOME10` (10%, four prior usages) and active `WELCOME2K` (`FIXED_AMOUNT`, 2.000 VND, zero usages).
 - API and Web lint passed after the demo coupon adjustment; targeted Checkout/Coupon integration passed 1 suite/2 tests, including an exact 2.000 VND fixed-discount assertion.
 - Shipping-policy verification passed API lint, targeted Checkout integration (1 suite/2 tests) and the complete commerce HTTP E2E flow (1 suite/1 test) with `SHIPPING_FEE_PER_SHOP=2000`.
+- SePay nullable-`agreement` compatibility passed API lint, Payment HTTP E2E (1 suite/2 tests) and Payment PostgreSQL integration (1 suite/4 tests); the Production-shaped callback now reaches authenticated idempotent settlement.
 
 ## Current Risks / Gaps
 

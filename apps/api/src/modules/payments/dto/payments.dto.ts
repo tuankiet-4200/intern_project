@@ -113,4 +113,8 @@ export class SepayIpnDto {
   @IsOptional()
   @IsObject()
   customer?: Record<string, unknown> | null;
+
+  @IsOptional()
+  @IsObject()
+  agreement?: Record<string, unknown> | null;
 }

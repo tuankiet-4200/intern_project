@@ -1623,7 +1623,7 @@ Checkout idempotency vẫn bảo vệ retry commit. Signed form có thể tạo 
 
 Endpoint public: `POST /payments/webhooks/sepay`.
 
-Controller nhận raw body, header `X-Secret-Key` và validated top-level DTO gồm `timestamp`, `notification_type`, `order`, `transaction`, `customer`. `customer` được phép `null`/vắng mặt vì IPN chuyển khoản chính thức của SePay không luôn gắn customer object; các trường settlement bắt buộc vẫn nằm trong `order` và `transaction`. Nested provider data được parse thủ công để không bind trực tiếp vào Prisma.
+Controller nhận raw body, header `X-Secret-Key` và validated top-level DTO gồm `timestamp`, `notification_type`, `order`, `transaction`, `customer`, `agreement`. `customer` và `agreement` được phép `null`/vắng mặt vì IPN chuyển khoản chính thức của SePay không luôn gắn hai object này; các trường settlement bắt buộc vẫn nằm trong `order` và `transaction`. Việc khai báo rõ `agreement` giữ được `forbidNonWhitelisted` cho field lạ nhưng không reject payload Production hợp lệ. Nested provider data được parse thủ công để không bind trực tiếp vào Prisma.
 
 `processSepayIpn()` fail closed theo thứ tự:
 
@@ -1649,7 +1649,7 @@ Hosted gateway redirect user tới `/payments/sepay/return?status=...&payment_id
 
 Reconcile API dùng server credential gọi `client.order.retrieve(paymentId)`, rồi yêu cầu invoice đúng, order `CAPTURED`, có transaction `APPROVED`, currency VND và amount khớp. SePay có thể redirect browser trước khi order-detail API kịp trả phần tử `transactions`; trường hợp này API trả trạng thái `pending` thay vì ném lỗi “transaction status is missing”, tuyệt đối không tự đánh dấu PAID. Return page poll tối đa tám lần, cách nhau hai giây, sau đó hiện nút **Kiểm tra lại** nếu provider vẫn chưa đồng bộ. Kết quả đã đủ bằng chứng tiếp tục đi qua `processProviderWebhook()` với audit event `RECONCILE:<transaction-id>`; không có câu lệnh update Payment/ParentOrder riêng trong controller/return page. Nếu IPN đến trước, endpoint trả already-settled. Nếu reconcile đến trước, IPN sau đó vẫn idempotent vì provider reference thống nhất.
 
-Regression coverage gồm HTTP E2E với `customer=null`, PostgreSQL reconciliation với official `{data:{...,transactions:[]}}` delayed shape rồi `APPROVED`, IPN wrong-secret/replay/amount mismatch và state-history assertion. Production debugging cần kiểm tra **Nhật ký IPN** ở SePay trước: IPN URL phải là `/api/payments/webhooks/sepay`, Content-Type JSON và `X-Secret-Key` phải khớp `SEPAY_IPN_SECRET`.
+Regression coverage gồm HTTP E2E với `customer=null` và `agreement=null`, PostgreSQL reconciliation với official `{data:{...,transactions:[]}}` delayed shape rồi `APPROVED`, IPN wrong-secret/replay/amount mismatch và state-history assertion. Production debugging cần kiểm tra **Nhật ký IPN** ở SePay trước: IPN URL phải là `/api/payments/webhooks/sepay`, Content-Type JSON và `X-Secret-Key` phải khớp `SEPAY_IPN_SECRET`.
 
 #### 19.4.5 Refund boundary
 
