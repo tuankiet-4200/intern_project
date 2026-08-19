@@ -16,6 +16,76 @@ import { PaymentsService } from './payments.service';
 import { SepayGatewayService } from './sepay-gateway.service';
 
 describe('Payment webhook and refund integration', () => {
+  it('keeps a delayed SePay order pending, then settles from the official order-detail shape', async () => {
+    const prisma = new PrismaService();
+    const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const customer = await prisma.user.create({
+      data: {
+        email: `sepay-reconcile-${suffix}@example.com`,
+        passwordHash: 'test',
+        fullName: 'SePay Reconcile Customer',
+      },
+    });
+    const order = await prisma.parentOrder.create({
+      data: {
+        userId: customer.id,
+        orderNumber: `SEPAY-RECONCILE-${suffix}`,
+        subtotalAmount: 225000,
+        totalAmount: 225000,
+        shippingAddress: { recipient: customer.fullName },
+        payments: { create: { method: PaymentMethod.SEPAY, provider: 'sepay', amount: 225000 } },
+      },
+      include: { payments: true },
+    });
+    const payment = order.payments[0];
+    let providerPayload: unknown = {
+      data: {
+        id: `provider-order-${suffix}`,
+        order_invoice_number: payment.id,
+        order_status: 'CAPTURED',
+        order_amount: '225000.00',
+        order_currency: 'VND',
+        transactions: [],
+      },
+    };
+    const sepay = {
+      retrieveOrder: async () => providerPayload,
+    } as unknown as SepayGatewayService;
+    const service = new PaymentsService(prisma, new ConfigService(), undefined, sepay);
+
+    try {
+      await expect(service.reconcileSepayPayment(customer.id, payment.id)).resolves.toEqual(
+        expect.objectContaining({ paymentStatus: PaymentStatus.UNPAID, pending: true }),
+      );
+
+      providerPayload = {
+        data: {
+          id: `provider-order-${suffix}`,
+          order_invoice_number: payment.id,
+          order_status: 'CAPTURED',
+          order_amount: '225000.00',
+          order_currency: 'VND',
+          transactions: [{
+            id: `provider-transaction-${suffix}`,
+            transaction_status: 'APPROVED',
+            transaction_amount: '225000',
+            transaction_currency: 'VND',
+          }],
+        },
+      };
+      await expect(service.reconcileSepayPayment(customer.id, payment.id)).resolves.toEqual(
+        expect.objectContaining({ paymentStatus: PaymentStatus.PAID }),
+      );
+      await expect(prisma.parentOrder.findUniqueOrThrow({ where: { id: order.id } })).resolves.toEqual(
+        expect.objectContaining({ paymentStatus: PaymentStatus.PAID }),
+      );
+    } finally {
+      await prisma.parentOrder.delete({ where: { id: order.id } });
+      await prisma.user.delete({ where: { id: customer.id } });
+      await prisma.$disconnect();
+    }
+  });
+
   it('settles a SePay payment once from an authenticated, captured ORDER_PAID IPN', async () => {
     const prisma = new PrismaService();
     const ipnSecret = 'sepay-ipn-integration-secret';

@@ -175,7 +175,8 @@ describe('Payment webhook HTTP security (e2e)', () => {
         transaction_amount: '350000',
         transaction_currency: 'VND',
       },
-      customer: { id: customer.id, customer_id: customer.id },
+      // SePay documents customer as nullable for bank-transfer IPNs.
+      customer: null,
     };
 
     await request(app.getHttpServer())

@@ -110,6 +110,7 @@ export class SepayIpnDto {
   @IsObject()
   transaction!: Record<string, unknown>;
 
+  @IsOptional()
   @IsObject()
-  customer!: Record<string, unknown>;
+  customer?: Record<string, unknown> | null;
 }

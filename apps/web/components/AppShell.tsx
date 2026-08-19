@@ -33,6 +33,13 @@ import {
   subscribeCartItemCount,
 } from '@/lib/cart-indicator';
 import {
+  formatWishlistBadgeCount,
+  getWishlistItemCount,
+  resetWishlistItemCount,
+  setWishlistItemCount,
+  subscribeWishlistItemCount,
+} from '@/lib/wishlist-indicator';
+import {
   canAccessPath,
   isNavigationItemActive,
   navigationFor,
@@ -62,6 +69,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const surface = resolveSurface(pathname);
   const session = useSyncExternalStore(subscribeSession, getSession, () => null);
   const cartItemCount = useSyncExternalStore(subscribeCartItemCount, getCartItemCount, () => 0);
+  const wishlistItemCount = useSyncExternalStore(subscribeWishlistItemCount, getWishlistItemCount, () => 0);
   const [sessionReady, setSessionReady] = useState(false);
 
   useEffect(() => {
@@ -74,16 +82,23 @@ export function AppShell({ children }: { children: ReactNode }) {
     if (!sessionReady) return;
     if (!session || session.user.role === 'ADMIN') {
       resetCartItemCount();
+      resetWishlistItemCount();
       return;
     }
+    // Do not display the previous account's shopping counts while the new account loads.
+    resetCartItemCount();
+    resetWishlistItemCount();
     let active = true;
-    apiRequest<{ itemCount: number }>('/cart', {}, true)
-      .then((cart) => {
-        if (active) setCartItemCount(cart.itemCount);
-      })
-      .catch(() => {
-        if (active) resetCartItemCount();
-      });
+    Promise.allSettled([
+      apiRequest<{ itemCount: number }>('/cart', {}, true),
+      apiRequest<{ productIds: string[] }>('/wishlist/product-ids', {}, true),
+    ]).then(([cartResult, wishlistResult]) => {
+      if (!active) return;
+      if (cartResult.status === 'fulfilled') setCartItemCount(cartResult.value.itemCount);
+      else resetCartItemCount();
+      if (wishlistResult.status === 'fulfilled') setWishlistItemCount(wishlistResult.value.productIds.length);
+      else resetWishlistItemCount();
+    });
     return () => { active = false; };
   }, [session, sessionReady]);
 
@@ -111,7 +126,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   }
 
   return (
-    <StorefrontShell pathname={pathname} navigation={navigation} session={session} authOnly={surface === 'auth'} cartItemCount={cartItemCount}>
+    <StorefrontShell pathname={pathname} navigation={navigation} session={session} authOnly={surface === 'auth'} cartItemCount={cartItemCount} wishlistItemCount={wishlistItemCount}>
       {content}
     </StorefrontShell>
   );
@@ -124,6 +139,7 @@ function StorefrontShell({
   session,
   authOnly,
   cartItemCount,
+  wishlistItemCount,
 }: {
   children: ReactNode;
   pathname: string;
@@ -131,6 +147,7 @@ function StorefrontShell({
   session: Session | null;
   authOnly: boolean;
   cartItemCount: number;
+  wishlistItemCount: number;
 }) {
   return (
     <div className="min-h-screen bg-[var(--background)] pb-20 md:pb-0">
@@ -139,7 +156,7 @@ function StorefrontShell({
           <Brand />
           {!authOnly ? (
             <nav className="ml-auto hidden items-center gap-1 lg:flex" aria-label="Điều hướng khách hàng">
-              {navigation.map((item) => <TopNavigationLink key={item.href} item={item} pathname={pathname} cartItemCount={cartItemCount} />)}
+              {navigation.map((item) => <TopNavigationLink key={item.href} item={item} pathname={pathname} cartItemCount={cartItemCount} wishlistItemCount={wishlistItemCount} />)}
             </nav>
           ) : <div className="ml-auto" />}
           <AccountActions session={session} authOnly={authOnly} />
@@ -152,7 +169,7 @@ function StorefrontShell({
 
       {!authOnly ? (
         <nav className="fixed inset-x-3 bottom-3 z-40 grid rounded-2xl border border-white/70 bg-[#142a25]/95 p-1.5 text-white shadow-2xl backdrop-blur md:hidden" style={{ gridTemplateColumns: `repeat(${Math.max(navigation.length, 1)}, minmax(0, 1fr))` }} aria-label="Điều hướng di động">
-          {navigation.map((item) => <MobileNavigationLink key={item.href} item={item} pathname={pathname} cartItemCount={cartItemCount} />)}
+          {navigation.map((item) => <MobileNavigationLink key={item.href} item={item} pathname={pathname} cartItemCount={cartItemCount} wishlistItemCount={wishlistItemCount} />)}
         </nav>
       ) : null}
       {!authOnly ? (
@@ -281,38 +298,40 @@ function UserAvatar({ name, inverse = false }: { name: string; inverse?: boolean
   return <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-extrabold ${inverse ? 'bg-emerald-300 text-[#102722]' : 'bg-emerald-100 text-emerald-800'}`}>{initials}</span>;
 }
 
-function TopNavigationLink({ item, pathname, cartItemCount }: { item: NavigationItem; pathname: string; cartItemCount: number }) {
+function TopNavigationLink({ item, pathname, cartItemCount, wishlistItemCount }: { item: NavigationItem; pathname: string; cartItemCount: number; wishlistItemCount: number }) {
   const Icon = ICONS[item.icon];
   const active = isNavigationItemActive(pathname, item);
   return (
     <Link href={item.href} className={`nav-link relative ${active ? 'nav-link-active' : ''}`}>
       <span className="relative">
         <Icon size={17} />
-        {item.icon === 'cart' && cartItemCount > 0 ? <CartBadge count={cartItemCount} /> : null}
+        {item.icon === 'cart' && cartItemCount > 0 ? <NavigationBadge count={cartItemCount} label="sản phẩm trong giỏ hàng" /> : null}
+        {item.icon === 'heart' && wishlistItemCount > 0 ? <NavigationBadge count={wishlistItemCount} label="sản phẩm yêu thích" /> : null}
       </span>
       {item.label}
     </Link>
   );
 }
 
-function MobileNavigationLink({ item, pathname, cartItemCount }: { item: NavigationItem; pathname: string; cartItemCount: number }) {
+function MobileNavigationLink({ item, pathname, cartItemCount, wishlistItemCount }: { item: NavigationItem; pathname: string; cartItemCount: number; wishlistItemCount: number }) {
   const Icon = ICONS[item.icon];
   const active = isNavigationItemActive(pathname, item);
   return (
     <Link href={item.href} className={`flex min-w-0 flex-col items-center gap-1 rounded-xl px-1 py-2 text-[10px] font-semibold ${active ? 'bg-white text-[#153c33]' : 'text-white/65'}`}>
       <span className="relative">
         <Icon size={18} />
-        {item.icon === 'cart' && cartItemCount > 0 ? <CartBadge count={cartItemCount} compact /> : null}
+        {item.icon === 'cart' && cartItemCount > 0 ? <NavigationBadge count={cartItemCount} label="sản phẩm trong giỏ hàng" compact /> : null}
+        {item.icon === 'heart' && wishlistItemCount > 0 ? <NavigationBadge count={wishlistItemCount} label="sản phẩm yêu thích" compact /> : null}
       </span>
       <span className="truncate">{item.label}</span>
     </Link>
   );
 }
 
-function CartBadge({ count, compact = false }: { count: number; compact?: boolean }) {
+function NavigationBadge({ count, label, compact = false }: { count: number; label: string; compact?: boolean }) {
   return (
-    <span className={`absolute flex items-center justify-center rounded-full bg-red-500 font-extrabold leading-none text-white ring-2 ${compact ? '-right-3 -top-2 h-4 min-w-4 px-1 text-[9px] ring-[#142a25]' : '-right-3.5 -top-2.5 h-[18px] min-w-[18px] px-1 text-[10px] ring-white'}`} aria-label={`${count} sản phẩm trong giỏ hàng`}>
-      {formatCartBadgeCount(count)}
+    <span className={`absolute flex items-center justify-center rounded-full bg-red-500 font-extrabold leading-none text-white ring-2 ${compact ? '-right-3 -top-2 h-4 min-w-4 px-1 text-[9px] ring-[#142a25]' : '-right-3.5 -top-2.5 h-[18px] min-w-[18px] px-1 text-[10px] ring-white'}`} aria-label={`${count} ${label}`}>
+      {label.includes('yêu thích') ? formatWishlistBadgeCount(count) : formatCartBadgeCount(count)}
     </span>
   );
 }

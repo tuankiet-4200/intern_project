@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
-import { ProductStatus, ShopStatus, UserRole } from '@prisma/client';
+import { InventoryReason, ProductStatus, ShopStatus, UserRole } from '@prisma/client';
 import { describe, expect, it } from '@jest/globals';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ShopsService } from '../shops/shops.service';
@@ -103,6 +103,7 @@ describe('CatalogService integration', () => {
         description: 'Updated catalog description',
         images: ['https://images.example.com/catalog-updated.jpg'],
         attributes: { material: 'steel', featured: true },
+        stockOnHand: 12,
       });
       expect(updated.name).toBe('Updated Product');
       expect(updated.slug).toBe(`updated-catalog-product-${suffix}`);
@@ -111,6 +112,22 @@ describe('CatalogService integration', () => {
       expect(updated.compareAtPrice?.toString()).toBe('150');
       expect(updated.images).toEqual(['https://images.example.com/catalog-updated.jpg']);
       expect(updated.attributes).toEqual({ material: 'steel', featured: true });
+      expect(updated.inventory?.onHand).toBe(12);
+      await expect(prisma.inventoryLedger.findFirstOrThrow({
+        where: { inventoryId: updated.inventory!.id, reason: InventoryReason.MANUAL_ADJUSTMENT },
+        orderBy: { createdAt: 'desc' },
+      })).resolves.toEqual(expect.objectContaining({ deltaOnHand: 7 }));
+
+      await prisma.inventory.update({ where: { productId: product.id }, data: { reserved: 2 } });
+      await expect(catalog.updateProduct(owner.id, product.id, {
+        name: 'Must Roll Back',
+        stockOnHand: 1,
+      })).rejects.toThrow('lower than reserved stock');
+      await expect(prisma.product.findUniqueOrThrow({ where: { id: product.id } }))
+        .resolves.toEqual(expect.objectContaining({ name: 'Updated Product' }));
+      await expect(prisma.inventory.findUniqueOrThrow({ where: { productId: product.id } }))
+        .resolves.toEqual(expect.objectContaining({ onHand: 12, reserved: 2 }));
+      await prisma.inventory.update({ where: { productId: product.id }, data: { reserved: 0 } });
 
       const active = await catalog.updateProductStatus(owner.id, product.id, {
         status: ProductStatus.ACTIVE,

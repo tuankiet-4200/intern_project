@@ -12,6 +12,7 @@ import {
 import { recommendationExplanation, recommendationRequest } from '@/lib/recommendations';
 import { shouldResetSubmittedSearch } from '@/lib/search-filter';
 import { updateWishlistMembership, wishlistProductIdSet } from '@/lib/wishlist';
+import { setWishlistItemCount } from '@/lib/wishlist-indicator';
 import {
   Boxes,
   Check,
@@ -67,8 +68,7 @@ export default function Home() {
   const [wishlistLoadingId, setWishlistLoadingId] = useState('');
   const [recommendations, setRecommendations] = useState<RecommendationResult | null>(null);
   const [recommendationsLoading, setRecommendationsLoading] = useState(true);
-  const [recommendationsResetting, setRecommendationsResetting] = useState(false);
-  const [recommendationMessage, setRecommendationMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [recommendationsVisible, setRecommendationsVisible] = useState(true);
   const recommendationInteractionVersion = useSyncExternalStore(
     subscribeRecommendationInteractions,
     getRecommendationInteractionVersion,
@@ -105,7 +105,11 @@ export default function Home() {
     let active = true;
     apiRequest<{ productIds: string[] }>('/wishlist/product-ids', {}, true)
       .then((result) => {
-        if (active) setWishlistState({ userId: session.user.id, productIds: wishlistProductIdSet(result.productIds) });
+        if (active) {
+          const productIds = wishlistProductIdSet(result.productIds);
+          setWishlistState({ userId: session.user.id, productIds });
+          setWishlistItemCount(productIds.size);
+        }
       })
       .catch(() => {
         if (active) setWishlistState({ userId: session.user.id, productIds: new Set() });
@@ -197,34 +201,15 @@ export default function Home() {
     setActionMessage(null);
     try {
       await apiRequest(`/wishlist/items/${product.id}`, { method: wished ? 'DELETE' : 'PUT' }, true);
-      setWishlistState((current) => ({
-        userId: session.user.id,
-        productIds: updateWishlistMembership(current.userId === session.user.id ? current.productIds : EMPTY_WISHLIST_IDS, product.id, !wished),
-      }));
+      const productIds = updateWishlistMembership(wishlistProductIds, product.id, !wished);
+      setWishlistState({ userId: session.user.id, productIds });
+      setWishlistItemCount(productIds.size);
       if (!wished) notifyRecommendationInteractionRecorded();
       setActionMessage({ type: 'success', text: wished ? `Đã bỏ “${product.name}” khỏi yêu thích.` : `Đã lưu “${product.name}” vào yêu thích.` });
     } catch (requestError) {
       setActionMessage({ type: 'error', text: requestError instanceof Error ? requestError.message : 'Không thể cập nhật danh sách yêu thích.' });
     } finally {
       setWishlistLoadingId('');
-    }
-  }
-
-  async function resetRecommendations() {
-    if (!session || session.user.role === 'ADMIN') return;
-    setRecommendationsResetting(true);
-    setRecommendationMessage(null);
-    try {
-      await apiRequest('/recommendations/interactions', { method: 'DELETE' }, true);
-      await loadRecommendations();
-      setRecommendationMessage({ type: 'success', text: 'Đã đặt lại dữ liệu gợi ý; danh sách hiện dùng sản phẩm nổi bật.' });
-    } catch (requestError) {
-      setRecommendationMessage({
-        type: 'error',
-        text: requestError instanceof Error ? requestError.message : 'Không thể đặt lại gợi ý lúc này.',
-      });
-    } finally {
-      setRecommendationsResetting(false);
     }
   }
 
@@ -290,18 +275,24 @@ export default function Home() {
                 {recommendationExplanation(Boolean(recommendations?.personalized))}
               </p>
             </div>
-            {recommendations?.personalized ? (
-              <button type="button" className="button-ghost self-start text-sm sm:self-auto" disabled={recommendationsResetting} onClick={() => void resetRecommendations()}>
-                {recommendationsResetting ? 'Đang đặt lại…' : 'Đặt lại gợi ý'}
-              </button>
-            ) : null}
+            <button
+              type="button"
+              role="switch"
+              aria-checked={recommendationsVisible}
+              className="inline-flex min-h-11 items-center gap-3 self-start rounded-xl border border-[var(--line)] bg-white px-3.5 text-sm font-bold text-[var(--foreground)] shadow-sm transition hover:border-emerald-300 sm:self-auto"
+              onClick={() => setRecommendationsVisible((visible) => !visible)}
+            >
+              <span>Hiển thị gợi ý</span>
+              <span className={`relative h-6 w-11 rounded-full transition ${recommendationsVisible ? 'bg-[var(--accent)]' : 'bg-gray-300'}`} aria-hidden="true">
+                <span className={`absolute top-1 h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${recommendationsVisible ? 'translate-x-6' : 'translate-x-1'}`} />
+              </span>
+            </button>
           </div>
-          {recommendationMessage ? (
-            <p className={`mt-4 rounded-xl px-4 py-3 text-sm ${recommendationMessage.type === 'success' ? 'bg-emerald-100 text-emerald-900' : 'bg-red-50 text-red-800'}`}>
-              {recommendationMessage.text}
+          {!recommendationsVisible ? (
+            <p className="mt-4 rounded-xl border border-dashed border-[var(--line)] bg-white/60 px-4 py-3 text-sm text-[var(--muted)]">
+              Phần gợi ý đang được ẩn. Dữ liệu sở thích của bạn vẫn được giữ nguyên.
             </p>
-          ) : null}
-          {recommendationsLoading ? (
+          ) : recommendationsLoading ? (
             <div className="mt-5 grid min-h-56 place-items-center rounded-2xl border border-dashed border-[var(--line)] bg-white/50">
               <span className="loading-spinner" aria-label="Đang tải gợi ý sản phẩm" />
             </div>

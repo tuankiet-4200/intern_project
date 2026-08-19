@@ -5,6 +5,7 @@ import { apiRequest, formatVnd } from '@/lib/api';
 import { setCartItemCount } from '@/lib/cart-indicator';
 import { productDetailPath } from '@/lib/product-detail';
 import type { WishlistPage, WishlistProduct } from '@/lib/wishlist';
+import { setWishlistItemCount } from '@/lib/wishlist-indicator';
 import { ChevronLeft, ChevronRight, Heart, PackageSearch, RefreshCw, ShoppingCart, Store, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
@@ -28,6 +29,7 @@ export default function WishlistPage() {
         return;
       }
       setResult(next);
+      setWishlistItemCount(next.total);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Không thể tải danh sách yêu thích.');
     } finally {

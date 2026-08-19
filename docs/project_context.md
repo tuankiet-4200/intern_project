@@ -244,6 +244,8 @@ Phase 8 customer Wishlist and catalog stock UX:
 - Added authenticated list/product-ID/add/remove APIs with pagination, idempotency, role checks and current purchasability/stock projection.
 - Added explicit `Kho: n` stock text and account-aware Wishlist heart controls to Marketplace product cards.
 - Added `/wishlist` with empty/error/loading states, pagination, unavailable-product retention, removal and cart-indicator synchronization.
+- Added an account-aware Wishlist count store and desktop/mobile header badge synchronized on restore, Home add/remove and Wishlist removal.
+- Added atomic Vendor editing of `stockOnHand`; every actual change writes `MANUAL_ADJUSTMENT` ledger and cannot reduce on-hand below reserved stock.
 - Added migration `20260818090000_phase8_customer_wishlist`, PostgreSQL integration coverage and Web helper/navigation coverage.
 
 Phase 9 selective Cart and dedicated Checkout:
@@ -263,6 +265,7 @@ Phase 10 SePay electronic payment:
 - Added signed one-time hosted checkout creation with Payment UUID invoice identity, VND validation and owner-scoped retry.
 - Added SePay `ORDER_PAID` IPN authentication, captured/approved/currency/amount checks, replay audit and exact state-machine settlement.
 - Added direct SePay order-detail reconciliation as a return-page fallback; browser callback parameters never settle a payment by themselves.
+- Hardened the first real Production return: nullable IPN customer is accepted, delayed order-detail transactions return pending, and the Web performs bounded polling with manual retry instead of exposing a missing-status parser error.
 - Added `/payments/sepay/return`, Checkout SePay selection, Orders retry action and strict hosted-form CSP/URL allowlisting.
 - Added targeted SDK/Web tests plus PostgreSQL IPN integration coverage for wrong secret, exact replay and amount mismatch.
 - Applied the tenth migration locally and verified API/Web compilation; automated SePay refunds remain explicitly rejected until a provider-supported refund workflow is selected.
@@ -273,7 +276,7 @@ Phase 11 interaction-based product recommendations:
 - Added explainable ranking using intent weight, actual-time recency decay, bounded frequency, category/shop affinity, sold-stock popularity and freshness.
 - Added public trending cold-start plus authenticated personalized recommendation APIs, both restricted to public in-stock Catalog products.
 - Wired Product Detail view tracking and transactionally wired Wishlist, Cart and Checkout signals.
-- Added Home recommendation shelf, existing Cart/Wishlist actions and current-account personalization reset.
+- Added Home recommendation shelf, existing Cart/Wishlist actions and a visibility switch that hides/shows the shelf without deleting current-account personalization.
 - Added migration `20260818230000_phase9_product_recommendations`, ranking unit tests and PostgreSQL integration coverage.
 - Fixed the async VIEW/Home navigation race by publishing an in-memory frontend invalidation only after interaction persistence succeeds; active or restored Home state reloads recommendations immediately.
 - Added multi-category shelf diversification after score ranking: preferred categories receive representation and one category is capped at 75% when enough public candidates exist, while narrow catalogs still fill available slots.
@@ -436,10 +439,15 @@ Verified:
 - Recommendation refresh/diversity regression passed: ranking unit tests 6/6, Web refresh/recommendation tests 4/4 and PostgreSQL recommendation integration tests 4/4. The mixed-intent case keeps three high-intent-category items plus one newly viewed-category item in a four-product shelf.
 - Final recommendation-fix regression passed: API 27 suites/68 tests sequentially and Web 18 suites/51 tests; API/Web lint, API build and the 27-route Web webpack production build passed. The first parallel API run hit one transient PostgreSQL deadlock in an unrelated Checkout integration test; the complete sequential rerun passed without source changes to Checkout.
 - Recommendation visual click-through could not run because browser discovery returned no connected browser; post-persist refresh is covered by the frontend subscriber regression, mixed-category behavior by pure ranking and PostgreSQL integration tests, and the full Web production route compiled successfully.
+- SePay production-return hardening passed nullable-customer HTTP E2E plus delayed-transaction PostgreSQL reconciliation; payment E2E is 2/2 and the focused Catalog/Payment integration run is 5/5.
+- Vendor stock editing regression proved Product + Inventory + `MANUAL_ADJUSTMENT` ledger commit together and a below-reserved request changes neither Product nor Inventory.
+- Wishlist badge/recommendation visibility Web tests passed; final regression is API 27 suites/69 tests and Web 19 suites/53 tests.
+- API/Web lint passed and both production builds passed; Web generated 27 routes including `/payments/sepay/return`, `/vendor/products` and `/wishlist`.
+- Browser runtime discovery returned no connected browser for this change; toggle/badge/form rendering is therefore verified by TypeScript production compilation, Web regression and source review rather than automated click-through.
 
 ## Current Risks / Gaps
 
-- SePay payment initiation/IPN/reconciliation is implemented, but real sandbox/production merchant certification requires external credentials and a public HTTPS IPN endpoint.
+- SePay payment initiation/IPN/reconciliation is implemented and the first real Production transfer exposed/fixed nullable-customer plus delayed-transaction handling. A complete post-deploy payment rerun with the configured HTTPS IPN and successful `PAID` observation is still required before calling merchant certification complete.
 - Automated refund for SePay bank-transfer payments is intentionally rejected because the selected SePay flow does not expose the same provider refund completion contract; define an audited outbound-transfer/refund policy before enabling it.
 - Admin audit rows are retained indefinitely and deliberately restrict deletion of their actor account; define retention/anonymization and legal-support policy before adding permanent user deletion.
 - Redis is now a critical API dependency when `RATE_LIMIT_FAILURE_MODE=closed`; production needs managed Redis high availability, capacity monitoring and an intentional outage policy.
@@ -469,7 +477,7 @@ Verified:
 
 The agreed application baseline, including shop chat, catalog-grounded AI, Admin governance, Wishlist, selective dedicated Checkout, recommendations and public demo shop storefronts, is complete. Remaining follow-up depends on external choices/access or scale requirements:
 
-1. Configure a SePay sandbox merchant, `SEPAY_*` secrets, public HTTPS `/api/payments/webhooks/sepay` IPN URL and run a real payment certification.
+1. Deploy the SePay return/IPN hardening, confirm `https://demoserver.io.vn/api/payments/webhooks/sepay` is active with matching secret, then rerun a real transfer through final `PAID` status and inspect SePay IPN logs.
 2. Define the operational/provider contract for SePay refunds before implementing automated outbound money movement.
 3. Configure `DEEPSEEK_API_KEY` in the API secret manager, enable AI per shop and verify answers against staging catalog data.
 4. Add Redis Socket.IO fan-out and a durable AI job worker before multi-replica production rollout.

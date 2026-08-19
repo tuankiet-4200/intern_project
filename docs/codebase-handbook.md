@@ -1623,7 +1623,7 @@ Checkout idempotency vẫn bảo vệ retry commit. Signed form có thể tạo 
 
 Endpoint public: `POST /payments/webhooks/sepay`.
 
-Controller nhận raw body, header `X-Secret-Key` và validated top-level DTO gồm `timestamp`, `notification_type`, `order`, `transaction`, `customer`. Nested provider data được parse thủ công để không bind trực tiếp vào Prisma.
+Controller nhận raw body, header `X-Secret-Key` và validated top-level DTO gồm `timestamp`, `notification_type`, `order`, `transaction`, `customer`. `customer` được phép `null`/vắng mặt vì IPN chuyển khoản chính thức của SePay không luôn gắn customer object; các trường settlement bắt buộc vẫn nằm trong `order` và `transaction`. Nested provider data được parse thủ công để không bind trực tiếp vào Prisma.
 
 `processSepayIpn()` fail closed theo thứ tự:
 
@@ -1647,7 +1647,9 @@ Hosted gateway redirect user tới `/payments/sepay/return?status=...&payment_id
 - `cancel|error`: không đổi Payment; user về Orders để thử lại.
 - `success`: Web gọi owner-scoped `POST /payments/sepay/:paymentId/reconcile`.
 
-Reconcile API dùng server credential gọi `client.order.retrieve(paymentId)`, rồi yêu cầu invoice đúng, order `CAPTURED`, có transaction `APPROVED`, currency VND và amount khớp. Kết quả tiếp tục đi qua `processProviderWebhook()` với một audit event `RECONCILE:<transaction-id>`; không có câu lệnh update Payment/ParentOrder riêng trong controller/return page. Nếu IPN đến trước, endpoint trả already-settled. Nếu reconcile đến trước, IPN sau đó vẫn idempotent vì provider reference thống nhất.
+Reconcile API dùng server credential gọi `client.order.retrieve(paymentId)`, rồi yêu cầu invoice đúng, order `CAPTURED`, có transaction `APPROVED`, currency VND và amount khớp. SePay có thể redirect browser trước khi order-detail API kịp trả phần tử `transactions`; trường hợp này API trả trạng thái `pending` thay vì ném lỗi “transaction status is missing”, tuyệt đối không tự đánh dấu PAID. Return page poll tối đa tám lần, cách nhau hai giây, sau đó hiện nút **Kiểm tra lại** nếu provider vẫn chưa đồng bộ. Kết quả đã đủ bằng chứng tiếp tục đi qua `processProviderWebhook()` với audit event `RECONCILE:<transaction-id>`; không có câu lệnh update Payment/ParentOrder riêng trong controller/return page. Nếu IPN đến trước, endpoint trả already-settled. Nếu reconcile đến trước, IPN sau đó vẫn idempotent vì provider reference thống nhất.
+
+Regression coverage gồm HTTP E2E với `customer=null`, PostgreSQL reconciliation với official `{data:{...,transactions:[]}}` delayed shape rồi `APPROVED`, IPN wrong-secret/replay/amount mismatch và state-history assertion. Production debugging cần kiểm tra **Nhật ký IPN** ở SePay trước: IPN URL phải là `/api/payments/webhooks/sepay`, Content-Type JSON và `X-Secret-Key` phải khớp `SEPAY_IPN_SECRET`.
 
 #### 19.4.5 Refund boundary
 
@@ -1954,6 +1956,7 @@ Frontend route gate có unit test tại `lib/navigation.spec.ts` cho menu theo r
 - Tính `available = onHand - reserved` để display và khóa nút khi hết hàng.
 - Card hiển thị tồn kho ở cả badge ảnh (`Còn n`) và dòng nội dung `Kho: n`; con số đều dùng `available`, không dùng `onHand` thô.
 - CUSTOMER/VENDOR đã đăng nhập tải `GET /wishlist/product-ids`; mỗi card có heart độc lập với Link chi tiết. Heart dùng `PUT`/`DELETE`, cập nhật một `Set` immutable và không làm reload catalog.
+- `AppShell` giữ một external store chỉ chứa tổng số WishlistItem. Sau restore session, shell tải product IDs cùng Cart; add/remove trên Home và remove trong `/wishlist` cập nhật store ngay. Header desktop/mobile dùng badge `99+` giống Cart nhưng số Wishlist là số sản phẩm unique, không phải tổng quantity.
 - Anonymous vẫn thấy heart nhưng được hướng dẫn đăng nhập; ADMIN không thấy hành động Wishlist. State gắn với `session.user.id` để logout/đổi account không lộ heart của user trước.
 - Add to cart gọi protected `/cart/items`, nhận cart mới và cập nhật badge header ngay.
 - Nếu chưa login, helper trả lỗi yêu cầu sign in và UI hiển thị link login; success/error không làm mất catalog đang có.
@@ -2037,12 +2040,13 @@ Unit test `lib/product-detail.spec.ts` kiểm tra available không âm, quantity
 - Load vendor products của shop.
 - Create draft product với initial stock, description, price/compare-at price, ảnh và attributes.
 - Edit name, slug, category, description, price/compare-at price, toàn bộ ảnh và attributes.
+- Edit cả `stockOnHand` (tồn kho thực tế). Giá trị phải là integer không âm và không được thấp hơn `reserved` hiện tại.
 - Image editor quản lý tối đa 8 URL có preview; ảnh đầu tiên là cover dùng ở catalog/detail.
 - Attribute editor chuyển rows thành unique key/value object; row thiếu một vế hoặc key trùng bị chặn trước API.
 - Toggle DRAFT/ACTIVE.
 - Archive terminal.
 
-Backend ownership/status/compare-at/attribute rules vẫn bắt buộc; disabled button trên UI không phải security control. Tồn kho chỉ nhập trong lúc create; mọi adjustment về sau phải đi qua inventory endpoint để luôn có InventoryLedger, không ghép vào product edit.
+Backend ownership/status/compare-at/attribute rules vẫn bắt buộc; disabled button trên UI không phải security control. `PATCH /products/:productId` nhận optional `stockOnHand`. CatalogService kiểm tra owner, trạng thái, category và merchandising trước, sau đó update Product + conditional Inventory + `InventoryLedger(MANUAL_ADJUSTMENT)` trong cùng Serializable transaction. Conditional write yêu cầu `onHand/reserved` vẫn đúng snapshot; race trả conflict và rollback cả thông tin lẫn stock. Không đổi stock thì không tạo ledger rỗng. Giảm dưới reserved bị reject trước write, vì hàng đã giữ cho đơn không thể biến mất qua form edit.
 
 Hiện form lưu URL ảnh, không upload binary/base64. Upload file trực tiếp cần object storage/CDN, signed upload, MIME/size scanning và lifecycle policy; không nên ghi file vào filesystem container hoặc JSON database. CSP cho HTTPS image có nghĩa browser có thể gửi request tới origin ảnh do Vendor nhập, vì vậy production nên chuyển sang CDN origin được quản lý khi chọn storage provider.
 
@@ -2980,7 +2984,7 @@ Home giữ hai vùng riêng:
 1. “Gợi ý dành cho bạn”: gọi authenticated API khi session CUSTOMER/VENDOR đã phục hồi, còn anonymous/ADMIN gọi public API. Nếu authenticated request lỗi, UI thử public fallback; nếu cả hai lỗi thì ẩn shelf, không làm mất Catalog.
 2. “Tất cả sản phẩm”: vẫn là `/products` với search/category hiện tại. Recommendation không thay thế kết quả tìm kiếm và không làm thay đổi logic xóa filter.
 
-Shelf tái sử dụng `ProductCard`, vì vậy ảnh/detail link, stock, Wishlist heart, add Cart và cart badge có cùng hành vi với Catalog. Khi reset, Home gọi DELETE own interactions, tải lại trending và hiển thị xác nhận.
+Shelf tái sử dụng `ProductCard`, vì vậy ảnh/detail link, stock, Wishlist heart, add Cart cùng cart/wishlist badge có cùng hành vi với Catalog. Header shelf có switch **Hiển thị gợi ý**; tắt switch chỉ ẩn card ở client và giữ nguyên interaction/ranking để bật lại tức thì. UI Home không còn nút xóa dữ liệu gợi ý. Endpoint owner-scoped `DELETE /recommendations/interactions` vẫn tồn tại cho privacy/API operations nhưng không bị gọi bởi switch.
 
 Product Detail chỉ record view sau khi có Product public và session mua sắm. Anonymous không bị fingerprint; ADMIN không phát shopping signal.
 
@@ -3023,8 +3027,8 @@ Manual:
 3. Kiểm tra shelf tự tải lại, có cả Laptop và Điện thoại, không cần add Điện thoại vào Cart và không có category nào chiếm cả bốn slot.
 4. Chuyển một candidate về DRAFT hoặc đưa available về 0; reload, item phải biến mất khỏi recommendation lẫn public Catalog.
 5. Click heart/cart/detail trong shelf; mỗi action phải hoạt động như card ở “Tất cả sản phẩm”, không click xuyên sang detail ngoài ý muốn.
-6. Click “Đặt lại gợi ý”; shelf trở về trending, Wishlist/Cart/Order vẫn nguyên.
-7. Login account khác; recommendation và reset của account trước không được ảnh hưởng account này.
+6. Tắt switch “Hiển thị gợi ý”; card biến mất nhưng phần mô tả trạng thái ẩn còn lại. Bật lại phải hiện đúng shelf cũ, không reset interaction.
+7. Login account khác; recommendation của account trước không được lộ sang account mới.
 
 ### 33.10 Giới hạn và hướng scale
 

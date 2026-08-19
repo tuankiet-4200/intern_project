@@ -220,7 +220,9 @@ function ProductEditor({ mode, shopId, product, categories, onCancel, onSaved }:
         description: String(form.get('description') ?? '').trim(),
         images: normalizeProductImageUrls(imageUrls),
         attributes: serializeProductAttributes(attributeRows),
-        ...(mode === 'create' ? { initialStock: Number(form.get('initialStock')), status: 'DRAFT' } : {}),
+        ...(mode === 'create'
+          ? { initialStock: Number(form.get('initialStock')), status: 'DRAFT' }
+          : { stockOnHand: Number(form.get('stockOnHand')) }),
       };
       await apiRequest(mode === 'create' ? `/shops/${shopId}/products` : `/products/${product!.id}`, {
         method: mode === 'create' ? 'POST' : 'PATCH',
@@ -244,7 +246,15 @@ function ProductEditor({ mode, shopId, product, categories, onCancel, onSaved }:
               <Field label="Tên sản phẩm"><input name="name" className="h-11 rounded-xl border px-3" value={name} onChange={(event) => setName(event.target.value)} required minLength={3} maxLength={140} /></Field>
               <Field label="Slug"><input name="slug" className="h-11 rounded-xl border px-3" value={slug} onChange={(event) => setSlug(event.target.value)} placeholder="ten-san-pham" required minLength={3} maxLength={160} /></Field>
               <Field label="Danh mục"><select name="categoryId" className="h-11 rounded-xl border px-3" defaultValue={product?.categoryId ?? ''} required><option value="">Chọn danh mục</option>{flatCategories.map((category) => <option key={category.id} value={category.id}>{category.label}</option>)}</select></Field>
-              {mode === 'create' ? <Field label="Tồn kho ban đầu" hint="Sau khi tạo, chỉnh kho qua Inventory Ledger."><input name="initialStock" className="h-11 rounded-xl border px-3" type="number" min="0" step="1" defaultValue="0" required /></Field> : <div className="rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-900"><strong>Tồn kho:</strong> {product ? product.inventory.onHand - product.inventory.reserved : 0} khả dụng. Điều chỉnh kho không nằm trong form này để giữ đúng ledger.</div>}
+              {mode === 'create' ? (
+                <Field label="Tồn kho ban đầu" hint="Hệ thống tự ghi nhận bút toán tồn kho khởi tạo.">
+                  <input name="initialStock" className="h-11 rounded-xl border px-3" type="number" min="0" step="1" defaultValue="0" required />
+                </Field>
+              ) : (
+                <Field label="Tồn kho thực tế" hint={`Đang giữ ${product?.inventory.reserved ?? 0} sản phẩm cho đơn hàng; không thể đặt thấp hơn mức này.`}>
+                  <input name="stockOnHand" className="h-11 rounded-xl border px-3" type="number" min={product?.inventory.reserved ?? 0} step="1" defaultValue={product?.inventory.onHand ?? 0} required />
+                </Field>
+              )}
             </div>
             <Field label="Mô tả sản phẩm" hint="Tối đa 5.000 ký tự."><textarea name="description" className="min-h-36 rounded-xl border p-3" defaultValue={product?.description ?? ''} maxLength={5000} placeholder="Mô tả công dụng, chất liệu, hướng dẫn sử dụng…" /></Field>
           </FormSection>

@@ -191,6 +191,12 @@ export class UpdateProductDto {
   @IsOptional()
   @IsObject()
   attributes?: Record<string, string | number | boolean>;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  stockOnHand?: number;
 }
 
 export class UpdateProductStatusDto {

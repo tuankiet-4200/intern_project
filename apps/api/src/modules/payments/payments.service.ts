@@ -78,18 +78,28 @@ export class PaymentsService {
     const payload = await this.requireSepay().retrieveOrder(payment.id);
     const normalized = this.normalizeSepayOrder(payload, payment.id);
     if (normalized.orderStatus !== 'CAPTURED' || normalized.transactionStatus !== 'APPROVED') {
-      throw new BadRequestException(
-        `SePay has not captured this payment yet (${normalized.orderStatus || 'UNKNOWN'})`,
-      );
+      return {
+        paymentId: payment.id,
+        paymentStatus: payment.status,
+        pending: true,
+        providerOrderStatus: normalized.orderStatus,
+        providerTransactionStatus: normalized.transactionStatus ?? null,
+      };
     }
-    if (normalized.currency !== 'VND') throw new BadRequestException('SePay currency must be VND');
+    const currency = this.requiredText(normalized.currency, 'SePay currency').toUpperCase();
+    if (currency !== 'VND') throw new BadRequestException('SePay currency must be VND');
+    const amount = this.moneyText(normalized.amount, 'SePay order amount');
+    const providerReference = this.requiredText(
+      normalized.providerReference,
+      'SePay provider reference',
+    );
     const rawBody = Buffer.from(JSON.stringify(payload));
     return this.processProviderWebhook(rawBody, {
-      eventId: `RECONCILE:${normalized.providerReference}`,
+      eventId: `RECONCILE:${providerReference}`,
       type: PaymentWebhookType.PAYMENT_SUCCEEDED,
       paymentId: payment.id,
-      providerReference: normalized.providerReference,
-      amount: normalized.amount,
+      providerReference,
+      amount,
     }, 'sepay', PaymentMethod.SEPAY);
   }
 
@@ -735,21 +745,17 @@ export class PaymentsService {
         order.order_status ?? source.order_status,
         'SePay order status',
       ).toUpperCase(),
-      transactionStatus: this.requiredText(
+      transactionStatus: this.optionalText(
         transaction.transaction_status ?? order.transaction_status ?? source.transaction_status,
-        'SePay transaction status',
-      ).toUpperCase(),
-      currency: this.requiredText(
+      )?.toUpperCase(),
+      currency: this.optionalText(
         order.order_currency ?? transaction.transaction_currency ?? source.order_currency,
-        'SePay currency',
-      ).toUpperCase(),
-      amount: this.moneyText(
+      )?.toUpperCase(),
+      amount: this.optionalText(
         order.order_amount ?? transaction.transaction_amount ?? source.order_amount,
-        'SePay order amount',
       ),
-      providerReference: this.requiredText(
+      providerReference: this.optionalText(
         transaction.id ?? order.id ?? source.id,
-        'SePay provider reference',
       ),
     };
   }

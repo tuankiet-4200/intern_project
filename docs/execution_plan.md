@@ -349,6 +349,8 @@ Done:
 - Made add/remove idempotent, restricted new saves to public products and retained previously saved products when they become unavailable.
 - Added independent heart actions and explicit `Kho: n` information to Marketplace product cards.
 - Added a role-aware `/wishlist` page with unavailable state, removal, pagination and add-to-cart synchronization.
+- Added an immediate desktop/mobile Wishlist badge synchronized on session restore, Home heart actions and Wishlist removal.
+- Added atomic Vendor product + on-hand stock editing with a mandatory `MANUAL_ADJUSTMENT` ledger row and reserved-stock protection.
 - Added migration `20260818090000_phase8_customer_wishlist`, PostgreSQL integration tests and Web state/navigation tests.
 
 Acceptance:
@@ -358,6 +360,8 @@ Acceptance:
 - Home heart controls do not navigate to product detail and reflect the current account's saved IDs.
 - Stock on each Home card is derived from `onHand - reserved` and never shown as a negative number.
 - Unavailable saved products remain visible but cannot be added to cart.
+- Wishlist badge reports unique saved products and changes without a page reload.
+- Editing on-hand stock cannot reduce it below reserved inventory or bypass Inventory Ledger.
 
 ## Phase 9 - Selective Cart & Dedicated Checkout
 
@@ -395,6 +399,7 @@ Done:
 - Required `ORDER_PAID`, `CAPTURED`, `APPROVED`, VND and exact Decimal amount before settlement.
 - Routed IPN and direct API reconciliation through the existing PaymentWebhookEvent/history/state-machine transaction instead of updating ParentOrder directly.
 - Added a dedicated return page that reconciles server-to-server and never trusts browser query parameters as proof of payment.
+- Made bank-transfer IPN accept SePay's documented nullable customer and made return reconciliation tolerate delayed transaction details with bounded polling/manual retry.
 - Added retry payment on customer Orders and CSP/form-action allowlisting for only the official SePay hosted origins.
 - Explicitly rejected unsupported SePay automated refunds so no refund remains permanently pending without a provider completion path.
 - Added SDK/unit, Web URL/form/CSP and PostgreSQL IPN replay/amount/security coverage.
@@ -406,6 +411,7 @@ Acceptance:
 - IPN with wrong secret, wrong state, currency or amount cannot mutate payment state.
 - Exact IPN replay returns idempotently and cannot create a second webhook audit row.
 - Browser success callback alone cannot mark a payment paid.
+- A captured order whose transaction detail has not propagated remains UNPAID/pending and can be reconciled again without surfacing a schema error.
 - An unpaid SePay order can reopen hosted checkout from Orders.
 
 ## Phase 11 - Interaction-Based Product Recommendations
@@ -421,7 +427,7 @@ Done:
 - Added public trending cold-start and authenticated personalized APIs with search/limit validation.
 - Enforced the same ACTIVE product, APPROVED shop and positive available-stock visibility rule as public Catalog.
 - Added account-owned personalization reset and cascade cleanup without storing search text, IP address, user agent or guest fingerprint.
-- Added the Home recommendation shelf with cold-start/personalized explanation, existing Cart/Wishlist actions and a reset control.
+- Added the Home recommendation shelf with cold-start/personalized explanation, existing Cart/Wishlist actions and a visibility switch that does not delete preference data.
 - Added post-persist frontend invalidation so successful VIEW/Cart/Wishlist signals refresh a cached/mounted Home shelf without waiting for another stronger action.
 - Added deterministic category diversity: when multiple affinity categories have candidates, one category cannot occupy more than 75% of the shelf unless the catalog is too narrow.
 - Added migration `20260818230000_phase9_product_recommendations`, pure ranking tests and PostgreSQL integration coverage.
@@ -434,6 +440,7 @@ Acceptance:
 - Product/detail, Cart, Wishlist and Checkout remain successful only when their own domain transaction succeeds.
 - A newly viewed category becomes visible on the next Home shelf refresh while earlier stronger-intent categories remain represented.
 - Reset deletes only the current account's personalization data and falls back to trending products.
+- Hiding/showing the shelf does not delete or alter the current account's personalization data.
 
 ## Phase 12 - Demo Catalog & Public Shop Storefront
 

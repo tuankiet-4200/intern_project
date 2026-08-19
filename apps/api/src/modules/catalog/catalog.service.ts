@@ -1,5 +1,5 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { ProductStatus, ShopStatus } from '@prisma/client';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { InventoryReason, Prisma, ProductStatus, ShopStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ShopsService } from '../shops/shops.service';
 import {
@@ -220,21 +220,60 @@ export class CatalogService {
       dto.compareAtPrice === undefined ? (product.compareAtPrice ? Number(product.compareAtPrice) : undefined) : dto.compareAtPrice,
       dto.attributes,
     );
+    const inventory = product.inventory;
+    if (!inventory) throw new NotFoundException('Inventory not found');
+    if (dto.stockOnHand !== undefined && dto.stockOnHand < inventory.reserved) {
+      throw new BadRequestException(
+        `On-hand stock cannot be lower than reserved stock (${inventory.reserved})`,
+      );
+    }
 
-    return this.prisma.product.update({
-      where: { id: productId },
-      data: {
-        name: dto.name,
-        slug: dto.slug,
-        categoryId: dto.categoryId,
-        price: dto.price,
-        description: dto.description,
-        compareAtPrice: dto.compareAtPrice,
-        images: dto.images,
-        attributes: dto.attributes,
-      },
-      include: { inventory: true, category: true },
-    });
+    return this.prisma.$transaction(async (tx) => {
+      const updatedProduct = await tx.product.updateMany({
+        where: { id: productId, status: { not: ProductStatus.ARCHIVED } },
+        data: {
+          name: dto.name,
+          slug: dto.slug,
+          categoryId: dto.categoryId,
+          price: dto.price,
+          description: dto.description,
+          compareAtPrice: dto.compareAtPrice,
+          images: dto.images,
+          attributes: dto.attributes,
+        },
+      });
+      if (updatedProduct.count !== 1) {
+        throw new ConflictException('Product changed concurrently; reload before editing');
+      }
+
+      if (dto.stockOnHand !== undefined && dto.stockOnHand !== inventory.onHand) {
+        const stockDelta = dto.stockOnHand - inventory.onHand;
+        const updatedInventory = await tx.inventory.updateMany({
+          where: {
+            id: inventory.id,
+            onHand: inventory.onHand,
+            reserved: inventory.reserved,
+          },
+          data: { onHand: dto.stockOnHand },
+        });
+        if (updatedInventory.count !== 1) {
+          throw new ConflictException('Inventory changed concurrently; reload before editing');
+        }
+        await tx.inventoryLedger.create({
+          data: {
+            inventoryId: inventory.id,
+            deltaOnHand: stockDelta,
+            reason: InventoryReason.MANUAL_ADJUSTMENT,
+            note: 'Vendor updated on-hand stock from product editor',
+          },
+        });
+      }
+
+      return tx.product.findUniqueOrThrow({
+        where: { id: productId },
+        include: { inventory: true, category: true },
+      });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 
   async updateProductStatus(ownerId: string, productId: string, dto: UpdateProductStatusDto) {
@@ -271,7 +310,7 @@ export class CatalogService {
   private async assertProductOwner(productId: string, ownerId: string) {
     const product = await this.prisma.product.findUnique({
       where: { id: productId },
-      include: { shop: true },
+      include: { shop: true, inventory: true },
     });
     if (!product) throw new NotFoundException('Product not found');
     if (product.shop.ownerId !== ownerId) throw new ForbiddenException('Not your product');
