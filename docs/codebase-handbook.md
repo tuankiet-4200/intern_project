@@ -2268,6 +2268,7 @@ Không sửa migration cũ đã được chia sẻ/applied. Tạo migration mớ
 - Phase 6 shop chat/AI: conversations, messages, read state, AI state và shop setting.
 - Phase 7 admin governance: account status, admin audit log và shop transition metadata.
 - Phase 8 customer wishlist: unique user/product relation và list/product lookup indexes.
+- Demo coupon data migration: giữ `WELCOME10` làm lịch sử inactive và tạo `WELCOME2K` giảm cố định 2.000 VND.
 
 ### 25.3 Seed
 
@@ -2279,7 +2280,9 @@ Seed dùng upsert để chạy lặp lại an toàn cho:
 - active products.
 - inventory và initial ledger khi inventory mới.
 - customer default address nếu customer chưa có address.
-- global coupon `WELCOME10` (10%, cap 100.000 VND).
+- global coupon `WELCOME2K` (giảm cố định 2.000 VND). Seed và data migration chỉ deactivate
+  `WELCOME10`, không sửa điều khoản kinh tế của campaign cũ, để các `CouponUsage` và tổng tiền
+  đơn hàng đã tạo vẫn giữ đúng lịch sử.
 
 Demo password hiện tại là `password123`, chỉ dùng local development.
 

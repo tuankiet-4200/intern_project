@@ -156,7 +156,7 @@ export default function AdminCouponsPage() {
       <p className="mt-1 text-sm text-[var(--muted)]">Manage global/shop discounts and protect total and per-customer usage.</p>
 
       <form onSubmit={submit} className="mt-4 grid gap-3 rounded-md border border-[var(--line)] bg-white p-4 md:grid-cols-4">
-        <input className="h-10 rounded border border-[var(--line)] px-3" placeholder="WELCOME10" value={form.code} onChange={(event) => setForm({ ...form, code: event.target.value.toUpperCase() })} required />
+        <input className="h-10 rounded border border-[var(--line)] px-3" placeholder="WELCOME2K" value={form.code} onChange={(event) => setForm({ ...form, code: event.target.value.toUpperCase() })} required />
         <select className="h-10 rounded border border-[var(--line)] px-3" value={form.scope} onChange={(event) => setForm({ ...form, scope: event.target.value as Coupon['scope'], shopId: '' })}>
           <option value="GLOBAL">Global</option><option value="SHOP">Shop</option>
         </select>

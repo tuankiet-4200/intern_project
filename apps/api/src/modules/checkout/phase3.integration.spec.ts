@@ -160,6 +160,22 @@ describe('Phase 3 commerce flow integration', () => {
         BadRequestException,
       );
 
+      const fixedCouponCode = `WELCOME2K-${suffix}`.toUpperCase();
+      await prisma.coupon.create({
+        data: {
+          code: fixedCouponCode,
+          scope: CouponScope.GLOBAL,
+          type: CouponType.FIXED_AMOUNT,
+          value: 2000,
+        },
+      });
+      const fixedCouponQuote = await checkout.quote(customer.id, {
+        couponCode: fixedCouponCode,
+        cartItemIds: selectedCartItemIds,
+      });
+      expect(fixedCouponQuote.discount.toString()).toBe('2000');
+      expect(fixedCouponQuote.total.toString()).toBe('458000');
+
       await prisma.coupon.create({
         data: {
           code: `PHASE3-${suffix}`.toUpperCase(),

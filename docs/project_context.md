@@ -291,6 +291,14 @@ Phase 12 demo catalog and public shop storefront:
 - Added customer `/shops/[slug]` storefronts and linked seller names from Home and Product Detail.
 - Added fixture, service and Web route/helper coverage plus live database/API/login/distribution smoke tests.
 
+Demo coupon adjustment:
+
+- Replaced the active demo `WELCOME10` percentage campaign with a new global `WELCOME2K`
+  campaign that discounts exactly 2.000 VND.
+- Kept existing `WELCOME10` rows and usages intact but inactive, so previously calculated order
+  totals and coupon audit history are never rewritten.
+- Added an idempotent seed path plus a deployable data migration for local and server databases.
+
 Governance/context:
 
 - Added `.agents/senior-tech-lead.rules.md`.
@@ -444,6 +452,8 @@ Verified:
 - Wishlist badge/recommendation visibility Web tests passed; final regression is API 27 suites/69 tests and Web 19 suites/53 tests.
 - API/Web lint passed and both production builds passed; Web generated 27 routes including `/payments/sepay/return`, `/vendor/products` and `/wishlist`.
 - Browser runtime discovery returned no connected browser for this change; toggle/badge/form rendering is therefore verified by TypeScript production compilation, Web regression and source review rather than automated click-through.
+- Coupon data migration applied locally; running the demo seed twice remained idempotent. Database verification shows inactive historical `WELCOME10` (10%, four prior usages) and active `WELCOME2K` (`FIXED_AMOUNT`, 2.000 VND, zero usages).
+- API and Web lint passed after the demo coupon adjustment; targeted Checkout/Coupon integration passed 1 suite/2 tests, including an exact 2.000 VND fixed-discount assertion.
 
 ## Current Risks / Gaps
 

@@ -57,18 +57,23 @@ async function main() {
     });
   }
 
-  await prisma.coupon.upsert({
-    where: { code: 'WELCOME10' },
-    update: { isActive: true, value: 10, maxDiscount: 100000 },
-    create: {
-      code: 'WELCOME10',
-      scope: CouponScope.GLOBAL,
-      type: CouponType.PERCENTAGE,
-      value: 10,
-      maxDiscount: 100000,
-      isActive: true,
-    },
-  });
+  await prisma.$transaction([
+    prisma.coupon.updateMany({
+      where: { code: 'WELCOME10' },
+      data: { isActive: false },
+    }),
+    prisma.coupon.upsert({
+      where: { code: 'WELCOME2K' },
+      update: { isActive: true },
+      create: {
+        code: 'WELCOME2K',
+        scope: CouponScope.GLOBAL,
+        type: CouponType.FIXED_AMOUNT,
+        value: 2000,
+        isActive: true,
+      },
+    }),
+  ]);
 
   const categories = await Promise.all([
     prisma.category.upsert({
