@@ -299,6 +299,13 @@ Demo coupon adjustment:
   totals and coupon audit history are never rewritten.
 - Added an idempotent seed path plus a deployable data migration for local and server databases.
 
+Demo shipping adjustment:
+
+- Reduced the fixed shipping policy from 30.000 VND to 2.000 VND per shop in the API fallback,
+  environment examples and CI configuration.
+- Updated Checkout integration/E2E totals; production must also set
+  `SHIPPING_FEE_PER_SHOP=2000` because runtime environment values override the fallback.
+
 Governance/context:
 
 - Added `.agents/senior-tech-lead.rules.md`.
@@ -454,6 +461,7 @@ Verified:
 - Browser runtime discovery returned no connected browser for this change; toggle/badge/form rendering is therefore verified by TypeScript production compilation, Web regression and source review rather than automated click-through.
 - Coupon data migration applied locally; running the demo seed twice remained idempotent. Database verification shows inactive historical `WELCOME10` (10%, four prior usages) and active `WELCOME2K` (`FIXED_AMOUNT`, 2.000 VND, zero usages).
 - API and Web lint passed after the demo coupon adjustment; targeted Checkout/Coupon integration passed 1 suite/2 tests, including an exact 2.000 VND fixed-discount assertion.
+- Shipping-policy verification passed API lint, targeted Checkout integration (1 suite/2 tests) and the complete commerce HTTP E2E flow (1 suite/1 test) with `SHIPPING_FEE_PER_SHOP=2000`.
 
 ## Current Risks / Gaps
 

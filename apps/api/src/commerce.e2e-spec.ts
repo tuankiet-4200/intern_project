@@ -164,7 +164,7 @@ describe('Complete commerce happy path e2e', () => {
       .send({})
       .expect(201);
     expect(quote.body.subtotal).toBe('500000');
-    expect(quote.body.total).toBe('530000');
+    expect(quote.body.total).toBe('502000');
 
     const checkout = await request(app.getHttpServer())
       .post('/api/checkout/commit')

@@ -174,7 +174,7 @@ describe('Phase 3 commerce flow integration', () => {
         cartItemIds: selectedCartItemIds,
       });
       expect(fixedCouponQuote.discount.toString()).toBe('2000');
-      expect(fixedCouponQuote.total.toString()).toBe('458000');
+      expect(fixedCouponQuote.total.toString()).toBe('402000');
 
       await prisma.coupon.create({
         data: {
@@ -191,8 +191,8 @@ describe('Phase 3 commerce flow integration', () => {
       expect(quote.shops).toHaveLength(2);
       expect(quote.subtotal.toString()).toBe('400000');
       expect(quote.discount.toString()).toBe('40000');
-      expect(quote.shipping.toString()).toBe('60000');
-      expect(quote.total.toString()).toBe('420000');
+      expect(quote.shipping.toString()).toBe('4000');
+      expect(quote.total.toString()).toBe('364000');
 
       const request = {
         addressId: address.id,
@@ -204,7 +204,7 @@ describe('Phase 3 commerce flow integration', () => {
       const order = await checkout.commit(customer.id, request);
       expect(order.shopOrders).toHaveLength(2);
       expect(order.payments).toHaveLength(1);
-      expect(order.payments[0].amount.toString()).toBe('420000');
+      expect(order.payments[0].amount.toString()).toBe('364000');
       const snapshots = order.shopOrders.flatMap((shopOrder) => shopOrder.items);
       expect(snapshots.map((item) => item.productName)).toEqual(
         expect.arrayContaining(['Phase 3 Product A', 'Phase 3 Product B']),

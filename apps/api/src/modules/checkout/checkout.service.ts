@@ -240,7 +240,7 @@ export class CheckoutService {
 
     const groups = this.groupItems(items);
     const subtotal = groups.reduce((sum, group) => sum.add(group.subtotal), new Prisma.Decimal(0));
-    const shippingPerShop = new Prisma.Decimal(process.env.SHIPPING_FEE_PER_SHOP ?? 30000);
+    const shippingPerShop = new Prisma.Decimal(process.env.SHIPPING_FEE_PER_SHOP ?? 2000);
     const shipping = shippingPerShop.mul(groups.length);
     const coupon = couponCode ? await this.validateCoupon(client, userId, couponCode, subtotal, groups) : null;
     const discount = coupon ? this.calculateDiscount(coupon, subtotal, groups) : new Prisma.Decimal(0);

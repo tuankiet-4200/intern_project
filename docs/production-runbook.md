@@ -69,7 +69,7 @@ API:
 | `OUTBOX_WORKER_INTERVAL_MS` | Poll interval, mặc định 2000 ms; tối thiểu 250 ms |
 | `OUTBOX_WORKER_BATCH_SIZE` | Event mỗi batch, mặc định 100, cap 500 |
 | `FRONTEND_URL` | Exact HTTPS Web origin cho CORS |
-| `SHIPPING_FEE_PER_SHOP` | Policy phí ship hiện tại |
+| `SHIPPING_FEE_PER_SHOP` | Policy phí ship hiện tại; demo cấu hình `2000` VND/shop |
 | `RATE_LIMIT_MAX` | Request/IP/window; tune từ traffic thật |
 | `RATE_LIMIT_WINDOW_MS` | Window milliseconds |
 | `RATE_LIMIT_STORE` | Production đặt rõ `redis` |

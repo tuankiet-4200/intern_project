@@ -187,7 +187,7 @@ Redis hiện là critical request-protection dependency khi cấu hình fail-clo
 | `REFRESH_SESSION_CLEANUP_MAX_BATCHES` | API | Số batch tối đa mỗi run | `10`, cap `100` |
 | `FRONTEND_URL` | API | CORS allowed origin | `http://localhost:3000` |
 | `PORT` | API | API listen port | `3005` |
-| `SHIPPING_FEE_PER_SHOP` | API | Phí ship fixed cho mỗi shop khi quote | `30000` |
+| `SHIPPING_FEE_PER_SHOP` | API | Phí ship fixed cho mỗi shop khi quote | `2000` |
 | `RATE_LIMIT_MAX` | API | Số request tối đa mỗi IP/window | `300` |
 | `RATE_LIMIT_WINDOW_MS` | API | Độ dài rate-limit window | `60000` |
 | `RATE_LIMIT_STORE` | API | `redis` dùng quota chung hoặc `memory` chỉ cho local/unit | Tự chọn `redis` nếu có `REDIS_URL`, ngược lại `memory` |
@@ -1161,7 +1161,7 @@ Mỗi group sau này trở thành một ShopOrder.
 Phí ship hiện tại là fixed per shop:
 
 ```text
-shippingPerShop = SHIPPING_FEE_PER_SHOP || 30000
+shippingPerShop = SHIPPING_FEE_PER_SHOP || 2000
 totalShipping = shippingPerShop * numberOfShops
 ```
 
