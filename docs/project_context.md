@@ -314,6 +314,14 @@ SePay Production IPN compatibility fix:
   `customer=null` and `agreement=null` reach secret verification and settlement instead of
   failing DTO validation with `property agreement should not exist`.
 
+Documentation deliverable:
+
+- Added `docs/internship-project-report.md`, a Vietnamese internship-report draft designed for
+  approximately 30 A4 Word pages after formatting. It documents the assigned work, architecture,
+  implemented results, testing/deployment practices, self-evaluation, limitations and appendices.
+- The draft intentionally uses placeholders for student, institution, mentor and internship-period
+  information, and excludes credentials or other sensitive environment values.
+
 Governance/context:
 
 - Added `.agents/senior-tech-lead.rules.md`.
